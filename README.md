@@ -22,7 +22,9 @@ languages/                   Translation template and English/Chinese catalogs
 
 The importer stores a WordPress-stable version of the WeChat article HTML rather than the raw source. It keeps layout-critical inline styles, localizes image/background URLs, converts invalid block-wrapping image links to editor-stable image links, rewrites intentional blank spacers into retained inline markers, replaces WeChat placeholder SVGs with hidden standard spans, and removes WeChat-only/editor-only attributes and custom tags.
 
-Media dedupe first recognizes this fork's URL hash metadata, then the upstream plugin's `_iafw_source_md5` metadata, then this fork's content hash metadata for media imported after this version. Server-side fetches are restricted to WeChat article/media hosts, image uploads are verified as JPEG/PNG/GIF/WebP bytes, and unsafe URL/CSS/SVG source is stripped before storage.
+Media dedupe now uses source-agnostic attachment content hashes stored in `_wai_attachment_content_md5`. WeChat imports download and verify image bytes, compute the MD5, then reuse any existing attachment with the same canonical hash before creating a new media file. New or regenerated attachments also receive the same canonical MD5 metadata; legacy source-hash keys such as `_iafw_source_md5` and `_wai_source_md5` are no longer read or written.
+
+Existing attachments are not scanned automatically. To populate old media, run a one-time WP-CLI backfill that calls `wai_update_attachment_content_md5_meta( $attachment_id )` for each attachment, or use `wp media regenerate --yes` when thumbnail regeneration is acceptable.
 
 Imported posts get a scoped Classic Editor body class as an integration hook, but the plugin does not force theme-specific editor dimensions. Visual consistency should come from stable imported HTML that can survive WordPress editor preprocessing.
 
@@ -49,7 +51,7 @@ binaries:
 xgettext --from-code=UTF-8 --language=PHP \
   --keyword=__ --keyword=_e --keyword=esc_html_e --keyword=esc_attr_e \
   --add-comments=translators: \
-  --package-name='WeChat Article Importer' --package-version='0.2.1' \
+  --package-name='WeChat Article Importer' --package-version='0.2.2' \
   --msgid-bugs-address='https://github.com/ittia-research' \
   --copyright-holder='ITTIA' \
   --output=languages/wechat-article-importer.pot \

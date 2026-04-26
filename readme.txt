@@ -3,7 +3,7 @@ Contributors: ittia, xiaozhai001
 Tags: wechat, wordpress, import, 微信公众号文章, 采集, 导入
 Requires at least: 5.0
 Tested up to: 6.8
-Stable tag: 0.2.1
+Stable tag: 0.2.2
 Requires PHP: 7.4
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -21,7 +21,7 @@ Paste a WeChat Official Account article URL and the plugin will fetch:
 * Featured image
 * Inline images, downloaded into the WordPress media library
 
-The importer runs as a multi-step admin AJAX flow so large articles can be processed without a single long blocking request. Before saving, it converts WeChat source HTML into WordPress-stable HTML: layout-critical inline styles are preserved, image/background URLs are localized, invalid block-wrapping image links are normalized, intentional blank spacers are rewritten into editor-stable inline markers, placeholder SVGs are replaced, and WeChat-only custom tags/attributes are removed.
+The importer runs as a multi-step admin AJAX flow so large articles can be processed without a single long blocking request. Before saving, it converts WeChat source HTML into WordPress-stable HTML: layout-critical inline styles are preserved, image/background URLs are localized, invalid block-wrapping image links are normalized, intentional blank spacers are rewritten into editor-stable inline markers, placeholder SVGs are replaced, and WeChat-only custom tags/attributes are removed. Media de-duplication is site-wide through canonical attachment content MD5 metadata, not WeChat source URL hashes.
 
 == Installation ==
 
@@ -39,7 +39,16 @@ It should work for many WeChat Official Account articles, but WeChat page struct
 
 No. Work is only triggered from the WordPress admin importer page.
 
+= How do I populate MD5 metadata for existing media? =
+
+New and regenerated attachments get `_wai_attachment_content_md5` automatically. Existing media need a one-time WP-CLI backfill that calls `wai_update_attachment_content_md5_meta()` per attachment, or `wp media regenerate --yes` if thumbnail regeneration is acceptable.
+
 == Changelog ==
+
+= 0.2.2 =
+* Changed media de-duplication to use canonical site-wide attachment content MD5 metadata.
+* Stopped reading or writing legacy source-hash metadata keys such as `_iafw_source_md5` and `_wai_source_md5`.
+* Added automatic MD5 metadata refresh for newly added or regenerated attachments.
 
 = 0.2.1 =
 * Added bounded retry-and-skip handling for image AJAX transport failures.

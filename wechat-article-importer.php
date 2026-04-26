@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       WeChat Article Importer
  * Description:       Import WeChat Official Account articles into WordPress drafts, including content, featured images, and inline images.
- * Version:           0.2.1
+ * Version:           0.2.2
  * Author:            ITTIA
  * Author URI:        https://github.com/ittia-research
  * License:           GPLv2
@@ -17,13 +17,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-const WAI_VERSION = '0.2.1';
+const WAI_VERSION = '0.2.2';
 const WAI_SOURCE_URL_META = '_wai_import_source_url';
 const WAI_CONTENT_HASH_META = '_wai_import_content_hash';
-const WAI_IMAGE_SOURCE_URL_MD5_META = '_wai_source_url_md5';
-const WAI_IMAGE_CONTENT_MD5_META = '_wai_content_md5';
-const WAI_LEGACY_SOURCE_MD5_META = '_wai_source_md5';
-const WAI_UPSTREAM_SOURCE_MD5_META = '_iafw_source_md5';
+const WAI_ATTACHMENT_CONTENT_MD5_META = '_wai_attachment_content_md5';
 const WAI_EDITOR_BODY_CLASS = 'wai-wechat-import-editor';
 const WAI_MAX_IMAGE_BYTES = 20971520;
 
@@ -92,6 +89,9 @@ function wai_enqueue_admin_scripts( $hook ) {
 }
 
 add_filter( 'tiny_mce_before_init', 'wai_extend_tinymce_for_imported_layouts' );
+add_action( 'add_attachment', 'wai_update_attachment_content_md5_meta' );
+add_filter( 'wp_update_attachment_metadata', 'wai_update_attachment_content_md5_meta_on_metadata_update', 10, 2 );
+
 /**
  * Keeps imported posts stable in the Classic Editor.
  *
@@ -1551,13 +1551,6 @@ function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = nul
 		return $sideload_cache[ $source_url_md5 ];
 	}
 
-	$existing_attachment_id = wai_find_attachment_by_source_url_md5( $source_url_md5 );
-	if ( $existing_attachment_id ) {
-		wai_record_attachment_source_hashes( $existing_attachment_id, $source_url_md5 );
-		$sideload_cache[ $source_url_md5 ] = $existing_attachment_id;
-		return $existing_attachment_id;
-	}
-
 	$ch      = curl_init();
 	$options = array(
 		CURLOPT_URL            => $image_url,
@@ -1609,7 +1602,7 @@ function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = nul
 	$content_md5            = md5( $image_data );
 	$existing_attachment_id = wai_find_attachment_by_content_md5( $content_md5 );
 	if ( $existing_attachment_id ) {
-		wai_record_attachment_source_hashes( $existing_attachment_id, $source_url_md5, $content_md5 );
+		wai_record_attachment_content_md5( $existing_attachment_id, $content_md5 );
 		$sideload_cache[ $source_url_md5 ] = $existing_attachment_id;
 		return $existing_attachment_id;
 	}
@@ -1647,7 +1640,7 @@ function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = nul
 		return $attachment_id;
 	}
 
-	wai_record_attachment_source_hashes( $attachment_id, $source_url_md5, $content_md5 );
+	wai_record_attachment_content_md5( $attachment_id, $content_md5 );
 
 	if ( $generate_thumbnails ) {
 		require_once ABSPATH . 'wp-admin/includes/image.php';
@@ -1661,42 +1654,22 @@ function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = nul
 }
 
 /**
- * @param string $source_url_md5 MD5 of original URL.
- * @return int
- */
-function wai_find_attachment_by_source_url_md5( $source_url_md5 ) {
-	$meta_keys = array( WAI_IMAGE_SOURCE_URL_MD5_META, WAI_LEGACY_SOURCE_MD5_META, WAI_UPSTREAM_SOURCE_MD5_META );
-	$meta_query = array( 'relation' => 'OR' );
-	foreach ( $meta_keys as $meta_key ) {
-		$meta_query[] = array(
-			'key'   => $meta_key,
-			'value' => $source_url_md5,
-		);
-	}
-	$found = get_posts(
-		array(
-			'fields'         => 'ids',
-			'post_type'      => 'attachment',
-			'post_status'    => 'inherit',
-			'posts_per_page' => 1,
-			'meta_query'     => $meta_query, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_query
-		)
-	);
-	return ! empty( $found ) ? (int) $found[0] : 0;
-}
-
-/**
- * @param string $content_md5 MD5 of file bytes.
+ * @param string $content_md5 MD5 of attachment file bytes.
  * @return int
  */
 function wai_find_attachment_by_content_md5( $content_md5 ) {
+	$content_md5 = wai_normalize_md5_hash( $content_md5 );
+	if ( '' === $content_md5 ) {
+		return 0;
+	}
+
 	$found = get_posts(
 		array(
 			'fields'         => 'ids',
 			'post_type'      => 'attachment',
 			'post_status'    => 'inherit',
 			'posts_per_page' => 1,
-			'meta_key'       => WAI_IMAGE_CONTENT_MD5_META,
+			'meta_key'       => WAI_ATTACHMENT_CONTENT_MD5_META,
 			'meta_value'     => $content_md5,
 		)
 	);
@@ -1704,15 +1677,67 @@ function wai_find_attachment_by_content_md5( $content_md5 ) {
 }
 
 /**
- * @param int         $attachment_id Attachment ID.
- * @param string      $source_url_md5 MD5 of source URL.
- * @param string|null $content_md5 MD5 of file bytes.
- * @return void
+ * @param int    $attachment_id Attachment ID.
+ * @param string $content_md5   MD5 of attachment file bytes.
+ * @return bool
  */
-function wai_record_attachment_source_hashes( $attachment_id, $source_url_md5, $content_md5 = null ) {
-	update_post_meta( $attachment_id, WAI_IMAGE_SOURCE_URL_MD5_META, $source_url_md5 );
-	update_post_meta( $attachment_id, WAI_LEGACY_SOURCE_MD5_META, $source_url_md5 );
-	if ( $content_md5 ) {
-		update_post_meta( $attachment_id, WAI_IMAGE_CONTENT_MD5_META, $content_md5 );
+function wai_record_attachment_content_md5( $attachment_id, $content_md5 ) {
+	$attachment_id = (int) $attachment_id;
+	$content_md5   = wai_normalize_md5_hash( $content_md5 );
+	if ( $attachment_id <= 0 || '' === $content_md5 || ! function_exists( 'update_post_meta' ) ) {
+		return false;
 	}
+
+	update_post_meta( $attachment_id, WAI_ATTACHMENT_CONTENT_MD5_META, $content_md5 );
+	return true;
+}
+
+/**
+ * Ensures a WordPress attachment has the canonical site-wide content MD5 metadata.
+ *
+ * @param int $attachment_id Attachment ID.
+ * @return string Stored MD5 hash, or an empty string when the file cannot be hashed.
+ */
+function wai_update_attachment_content_md5_meta( $attachment_id ) {
+	$attachment_id = (int) $attachment_id;
+	if ( $attachment_id <= 0 || ! function_exists( 'get_attached_file' ) ) {
+		return '';
+	}
+
+	$filepath = get_attached_file( $attachment_id );
+	if ( ! is_string( $filepath ) || '' === $filepath || ! is_file( $filepath ) || ! is_readable( $filepath ) ) {
+		return '';
+	}
+
+	$content_md5 = hash_file( 'md5', $filepath );
+	if ( ! is_string( $content_md5 ) ) {
+		return '';
+	}
+
+	$content_md5 = wai_normalize_md5_hash( $content_md5 );
+	if ( '' === $content_md5 ) {
+		return '';
+	}
+
+	wai_record_attachment_content_md5( $attachment_id, $content_md5 );
+	return $content_md5;
+}
+
+/**
+ * @param mixed $metadata      Attachment metadata.
+ * @param int   $attachment_id Attachment ID.
+ * @return mixed
+ */
+function wai_update_attachment_content_md5_meta_on_metadata_update( $metadata, $attachment_id ) {
+	wai_update_attachment_content_md5_meta( $attachment_id );
+	return $metadata;
+}
+
+/**
+ * @param string $content_md5 Candidate MD5 hash.
+ * @return string Lowercase MD5 hash, or an empty string when invalid.
+ */
+function wai_normalize_md5_hash( $content_md5 ) {
+	$content_md5 = strtolower( trim( (string) $content_md5 ) );
+	return preg_match( '/^[a-f0-9]{32}$/', $content_md5 ) ? $content_md5 : '';
 }

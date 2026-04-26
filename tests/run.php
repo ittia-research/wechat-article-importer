@@ -49,6 +49,18 @@ function get_post_meta( $post_id, $key, $single = false ) {
 	$value = $GLOBALS['wai_test_post_meta'][ $post_id ][ $key ] ?? '';
 	return $single ? $value : array( $value );
 }
+function update_post_meta( $post_id, $key, $value ) {
+	$GLOBALS['wai_test_post_meta'][ $post_id ][ $key ] = $value;
+	$GLOBALS['wai_test_updated_post_meta'][] = func_get_args();
+	return true;
+}
+function get_posts( $args ) {
+	$GLOBALS['wai_test_get_posts_args'][] = $args;
+	return $GLOBALS['wai_test_get_posts_results'] ?? array();
+}
+function get_attached_file( $attachment_id ) {
+	return $GLOBALS['wai_test_attached_files'][ $attachment_id ] ?? '';
+}
 class WP_Error {
 	private $message;
 	public function __construct( $code = '', $message = '' ) { $this->message = $message; }
@@ -79,7 +91,13 @@ $registered_callbacks = array();
 foreach ( $GLOBALS['wai_test_actions'] as $action_args ) {
 	$registered_callbacks[] = $action_args[0] . ':' . $action_args[1];
 }
+$registered_filters = array();
+foreach ( $GLOBALS['wai_test_filters'] as $filter_args ) {
+	$registered_filters[] = $filter_args[0] . ':' . $filter_args[1];
+}
 assert_true( in_array( 'plugins_loaded:wai_load_textdomain', $registered_callbacks, true ), 'textdomain loader is registered on plugins_loaded' );
+assert_true( in_array( 'add_attachment:wai_update_attachment_content_md5_meta', $registered_callbacks, true ), 'attachment creation records canonical content MD5 metadata' );
+assert_true( in_array( 'wp_update_attachment_metadata:wai_update_attachment_content_md5_meta_on_metadata_update', $registered_filters, true ), 'attachment metadata updates refresh canonical content MD5 metadata' );
 
 wai_load_textdomain();
 assert_true(
@@ -110,6 +128,40 @@ assert_true( ! wai_is_allowed_image_url( 'https://example.test/image.jpg' ), 're
 assert_true( is_wp_error( wai_sideload_image( 'https://example.test/image.jpg', 0, '/tmp/no-cookie.txt' ) ), 'sideload rejects non-WeChat image URL before cURL' );
 assert_true( 'image/svg+xml' === wai_detect_image_mime_type( '<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>' ), 'SVG bytes are detected' );
 assert_true( '' === wai_extension_for_allowed_image_mime( 'image/svg+xml' ), 'SVG is not an allowed upload type' );
+
+assert_true( WAI_ATTACHMENT_CONTENT_MD5_META === '_wai_attachment_content_md5', 'canonical attachment MD5 metadata key is source-agnostic' );
+assert_true( ! defined( 'WAI_LEGACY_SOURCE_MD5_META' ), 'legacy fork source MD5 metadata constant is removed' );
+assert_true( ! defined( 'WAI_UPSTREAM_SOURCE_MD5_META' ), 'upstream source MD5 metadata constant is removed' );
+assert_true( ! defined( 'WAI_IMAGE_CONTENT_MD5_META' ), 'importer-only content MD5 metadata constant is removed' );
+
+$site_wide_md5 = '0123456789abcdef0123456789ABCDEF';
+assert_true( '0123456789abcdef0123456789abcdef' === wai_normalize_md5_hash( ' ' . $site_wide_md5 . ' ' ), 'MD5 hashes are normalized before storage and lookup' );
+assert_true( '' === wai_normalize_md5_hash( 'not-an-md5' ), 'invalid MD5 hashes are rejected' );
+
+$GLOBALS['wai_test_post_meta'] = array();
+$GLOBALS['wai_test_updated_post_meta'] = array();
+assert_true( wai_record_attachment_content_md5( 456, $site_wide_md5 ), 'canonical content MD5 metadata is recorded for an attachment' );
+assert_true( '0123456789abcdef0123456789abcdef' === $GLOBALS['wai_test_post_meta'][456][ WAI_ATTACHMENT_CONTENT_MD5_META ], 'canonical content MD5 metadata is lowercased in post meta' );
+assert_true( ! isset( $GLOBALS['wai_test_post_meta'][456]['_wai_source_md5'] ), 'legacy fork source MD5 metadata is not written' );
+assert_true( ! isset( $GLOBALS['wai_test_post_meta'][456]['_iafw_source_md5'] ), 'upstream source MD5 metadata is not written' );
+
+$GLOBALS['wai_test_get_posts_results'] = array( 789 );
+$GLOBALS['wai_test_get_posts_args'] = array();
+assert_true( 789 === wai_find_attachment_by_content_md5( $site_wide_md5 ), 'content MD5 lookup can find any attachment by canonical site-wide metadata' );
+$last_get_posts_args = $GLOBALS['wai_test_get_posts_args'][ count( $GLOBALS['wai_test_get_posts_args'] ) - 1 ];
+assert_true( WAI_ATTACHMENT_CONTENT_MD5_META === $last_get_posts_args['meta_key'], 'content MD5 lookup uses only the canonical metadata key' );
+assert_true( ! isset( $last_get_posts_args['meta_query'] ), 'content MD5 lookup no longer checks source-hash compatibility metadata' );
+unset( $GLOBALS['wai_test_get_posts_results'] );
+
+$tmp_media_file = tempnam( sys_get_temp_dir(), 'wai-md5-' );
+file_put_contents( $tmp_media_file, 'site-wide bytes' );
+$GLOBALS['wai_test_attached_files'] = array( 321 => $tmp_media_file );
+$expected_tmp_md5 = md5_file( $tmp_media_file );
+assert_true( $expected_tmp_md5 === wai_update_attachment_content_md5_meta( 321 ), 'attachment file hashing fills missing canonical MD5 metadata' );
+assert_true( $expected_tmp_md5 === $GLOBALS['wai_test_post_meta'][321][ WAI_ATTACHMENT_CONTENT_MD5_META ], 'attachment file hash is stored as canonical MD5 metadata' );
+$metadata = array( 'sizes' => array() );
+assert_true( $metadata === wai_update_attachment_content_md5_meta_on_metadata_update( $metadata, 321 ), 'attachment metadata update filter preserves WordPress metadata payload' );
+unlink( $tmp_media_file );
 
 $fixture = '<section style="line-height: 2.2; letter-spacing: 0.6px; color: rgb(62, 62, 62);" data-pm-slice="0 0 []">'
 	. '<p style="margin: 0px;"><span leaf="">谷雨至，雨生百谷。</span></p>'
