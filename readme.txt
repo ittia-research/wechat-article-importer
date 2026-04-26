@@ -3,7 +3,7 @@ Contributors: ittia, xiaozhai001
 Tags: wechat, wordpress, import, 微信公众号文章, 采集, 导入
 Requires at least: 5.0
 Tested up to: 6.8
-Stable tag: 0.2.0
+Stable tag: 0.2.1
 Requires PHP: 7.4
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -40,6 +40,11 @@ It should work for many WeChat Official Account articles, but WeChat page struct
 No. Work is only triggered from the WordPress admin importer page.
 
 == Changelog ==
+
+= 0.2.1 =
+* Added bounded retry-and-skip handling for image AJAX transport failures.
+* Added final import warnings that report skipped image counts and URLs.
+* Added cURL connect and slow-transfer guards for article and image fetches.
 
 = 0.2.0 =
 * Added stable WordPress HTML cleanup that preserves visual WeChat styling while removing WeChat editor/source garbage.

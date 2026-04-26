@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       WeChat Article Importer
  * Description:       Import WeChat Official Account articles into WordPress drafts, including content, featured images, and inline images.
- * Version:           0.2.0
+ * Version:           0.2.1
  * Author:            ITTIA
  * Author URI:        https://github.com/ittia-research
  * License:           GPLv2
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-const WAI_VERSION = '0.2.0';
+const WAI_VERSION = '0.2.1';
 const WAI_SOURCE_URL_META = '_wai_import_source_url';
 const WAI_CONTENT_HASH_META = '_wai_import_content_hash';
 const WAI_IMAGE_SOURCE_URL_MD5_META = '_wai_source_url_md5';
@@ -68,11 +68,14 @@ function wai_enqueue_admin_scripts( $hook ) {
 				'progress_button_label'         => __( '%1$s (%2$s)', 'wechat-article-importer' ),
 				/* translators: 1: Image processing status, 2: Progress count, for example "1 / 5". */
 				'step_2_message'                => __( 'Step 2/3: %1$s %2$s. Please keep this page open...', 'wechat-article-importer' ),
-				'image_download_server_error'   => __( 'A serious server error occurred while downloading images. The import has been stopped.', 'wechat-article-importer' ),
+				'image_download_server_error'   => __( 'A server error occurred while downloading this image.', 'wechat-article-importer' ),
 				'creating_post'                 => __( 'Creating post...', 'wechat-article-importer' ),
 				'step_3_message'                => __( 'Step 3/3: Images are processed. Finalizing and creating the post...', 'wechat-article-importer' ),
 				/* translators: %s: Linked "View or edit it here" text. */
 				'imported_as_draft_template'    => __( 'The article was imported as a draft. %s', 'wechat-article-importer' ),
+				/* translators: %s: Number of skipped images. */
+				'imported_with_skipped_images_template' => __( 'The article was imported as a draft, but %s images could not be downloaded.', 'wechat-article-importer' ),
+				'skipped_image_urls_heading'    => __( 'Skipped image URLs', 'wechat-article-importer' ),
 				'view_or_edit'                  => __( 'View or edit it here', 'wechat-article-importer' ),
 				'create_post_failed'            => __( 'Failed to create the post.', 'wechat-article-importer' ),
 				'create_post_server_error'      => __( 'A server error occurred while creating the post.', 'wechat-article-importer' ),
@@ -583,6 +586,7 @@ function wai_fetch_remote_url( $url, $cookie_jar_path ) {
 		CURLOPT_URL            => $url,
 		CURLOPT_RETURNTRANSFER => true,
 		CURLOPT_TIMEOUT        => 30,
+		CURLOPT_CONNECTTIMEOUT => 10,
 		CURLOPT_COOKIEJAR      => $cookie_jar_path,
 		CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36',
 		CURLOPT_SSL_VERIFYPEER => true,
@@ -594,6 +598,10 @@ function wai_fetch_remote_url( $url, $cookie_jar_path ) {
 	}
 	if ( defined( 'CURLOPT_REDIR_PROTOCOLS' ) && defined( 'CURLPROTO_HTTPS' ) ) {
 		$options[ CURLOPT_REDIR_PROTOCOLS ] = CURLPROTO_HTTPS;
+	}
+	if ( defined( 'CURLOPT_LOW_SPEED_LIMIT' ) && defined( 'CURLOPT_LOW_SPEED_TIME' ) ) {
+		$options[ CURLOPT_LOW_SPEED_LIMIT ] = 1024;
+		$options[ CURLOPT_LOW_SPEED_TIME ]  = 20;
 	}
 	curl_setopt_array( $ch, $options );
 	$html      = curl_exec( $ch );
@@ -1556,6 +1564,7 @@ function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = nul
 		CURLOPT_RETURNTRANSFER => true,
 		CURLOPT_HEADER         => false,
 		CURLOPT_TIMEOUT        => 60,
+		CURLOPT_CONNECTTIMEOUT => 10,
 		CURLOPT_SSL_VERIFYPEER => true,
 		CURLOPT_SSL_VERIFYHOST => 2,
 		CURLOPT_FOLLOWLOCATION => false,
@@ -1571,6 +1580,10 @@ function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = nul
 	}
 	if ( defined( 'CURLOPT_MAXFILESIZE' ) ) {
 		$options[ CURLOPT_MAXFILESIZE ] = WAI_MAX_IMAGE_BYTES;
+	}
+	if ( defined( 'CURLOPT_LOW_SPEED_LIMIT' ) && defined( 'CURLOPT_LOW_SPEED_TIME' ) ) {
+		$options[ CURLOPT_LOW_SPEED_LIMIT ] = 1024;
+		$options[ CURLOPT_LOW_SPEED_TIME ]  = 20;
 	}
 	curl_setopt_array( $ch, $options );
 	$image_data = curl_exec( $ch );

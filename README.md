@@ -49,7 +49,7 @@ binaries:
 xgettext --from-code=UTF-8 --language=PHP \
   --keyword=__ --keyword=_e --keyword=esc_html_e --keyword=esc_attr_e \
   --add-comments=translators: \
-  --package-name='WeChat Article Importer' --package-version='0.2.0' \
+  --package-name='WeChat Article Importer' --package-version='0.2.1' \
   --msgid-bugs-address='https://github.com/ittia-research' \
   --copyright-holder='ITTIA' \
   --output=languages/wechat-article-importer.pot \

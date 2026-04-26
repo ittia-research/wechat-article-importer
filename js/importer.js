@@ -5,6 +5,8 @@ jQuery(document).ready(function ($) {
 
     var taskData = {};
     var REQUEST_DELAY = 500;
+    var IMAGE_REQUEST_MAX_RETRIES = 2;
+    var IMAGE_REQUEST_RETRY_DELAY = 3000;
     var strings = (window.wai_ajax && window.wai_ajax.i18n) || {};
 
     function i18n(key, fallback) {
@@ -77,6 +79,17 @@ jQuery(document).ready(function ($) {
             .append(document.createTextNode(template.slice(placeholderIndex + 2)));
     }
 
+    function recordSkippedImage(imageUrl, reason) {
+        if (!taskData.skipped_images) {
+            taskData.skipped_images = [];
+        }
+
+        taskData.skipped_images.push({
+            image_url: imageUrl,
+            reason: reason || i18n('image_download_server_error', 'A server error occurred while downloading this image.')
+        });
+    }
+
     importForm.on('submit', function (event) {
         event.preventDefault();
 
@@ -100,6 +113,7 @@ jQuery(document).ready(function ($) {
         $.ajax({
             url: wai_ajax.ajax_url,
             type: 'POST',
+            dataType: 'json',
             data: {
                 action: 'wai_start_import',
                 _ajax_nonce: wai_ajax.nonce,
@@ -112,7 +126,9 @@ jQuery(document).ready(function ($) {
                         image_urls: response.data.image_urls,
                         total_images: response.data.image_urls.length,
                         processed_count: 0,
-                        generate_thumbnails: generateThumbnails
+                        generate_thumbnails: generateThumbnails,
+                        image_retry_counts: {},
+                        skipped_images: []
                     };
                     if (taskData.total_images > 0) {
                         processNextImage();
@@ -149,6 +165,7 @@ jQuery(document).ready(function ($) {
         $.ajax({
             url: wai_ajax.ajax_url,
             type: 'POST',
+            dataType: 'json',
             data: {
                 action: 'wai_process_image',
                 _ajax_nonce: wai_ajax.nonce,
@@ -161,14 +178,39 @@ jQuery(document).ready(function ($) {
                     taskData.processed_count++;
                     setTimeout(processNextImage, REQUEST_DELAY);
                 } else {
-                    console.warn('Skipping image due to error:', response.data.error);
+                    recordSkippedImage(
+                        currentImageUrl,
+                        response.data && response.data.error ? response.data.error : i18n('image_download_server_error', 'A server error occurred while downloading this image.')
+                    );
+                    console.warn('Skipping image due to error:', taskData.skipped_images[taskData.skipped_images.length - 1]);
                     taskData.processed_count++;
 
                     setTimeout(processNextImage, REQUEST_DELAY);
                 }
             },
             error: function (jqXHR) {
-                handleError(i18n('image_download_server_error', 'A serious server error occurred while downloading images. The import has been stopped.'), jqXHR);
+                var retryCount = taskData.image_retry_counts[currentImageUrl] || 0;
+                if (retryCount < IMAGE_REQUEST_MAX_RETRIES) {
+                    taskData.image_retry_counts[currentImageUrl] = retryCount + 1;
+                    console.warn('Retrying image after server/transport error:', {
+                        image_url: currentImageUrl,
+                        retry: retryCount + 1,
+                        status: jqXHR.status
+                    });
+                    setTimeout(processNextImage, IMAGE_REQUEST_RETRY_DELAY * (retryCount + 1));
+                    return;
+                }
+
+                console.warn('Skipping image after repeated server/transport errors:', {
+                    image_url: currentImageUrl,
+                    status: jqXHR.status
+                });
+                recordSkippedImage(
+                    currentImageUrl,
+                    i18n('image_download_server_error', 'A server error occurred while downloading this image.')
+                );
+                taskData.processed_count++;
+                setTimeout(processNextImage, REQUEST_DELAY);
             }
         });
     }
@@ -179,6 +221,7 @@ jQuery(document).ready(function ($) {
         $.ajax({
             url: wai_ajax.ajax_url,
             type: 'POST',
+            dataType: 'json',
             data: {
                 action: 'wai_finish_import',
                 _ajax_nonce: wai_ajax.nonce,
@@ -193,8 +236,42 @@ jQuery(document).ready(function ($) {
                         i18n('view_or_edit', 'View or edit it here'),
                         response.data.edit_link
                     );
+
+                    var skippedImages = taskData.skipped_images || [];
+                    var notice = $('<div>').addClass('notice notice-' + (skippedImages.length ? 'warning' : 'success')).append(successParagraph);
+                    if (skippedImages.length) {
+                        notice.append(
+                            $('<p>').text(
+                                formatString(
+                                    i18n('imported_with_skipped_images_template', 'The article was imported as a draft, but %s images could not be downloaded.'),
+                                    [skippedImages.length]
+                                )
+                            )
+                        );
+
+                        var skippedDetails = $('<details>').append(
+                            $('<summary>').text(i18n('skipped_image_urls_heading', 'Skipped image URLs'))
+                        );
+                        var skippedList = $('<ul>');
+                        skippedImages.forEach(function (skippedImage) {
+                            skippedList.append(
+                                $('<li>')
+                                    .append(
+                                        $('<a>')
+                                            .attr('href', safeUrl(skippedImage.image_url))
+                                            .attr('target', '_blank')
+                                            .attr('rel', 'noopener noreferrer')
+                                            .text(skippedImage.image_url)
+                                    )
+                                    .append(document.createTextNode(skippedImage.reason ? ' — ' + skippedImage.reason : ''))
+                            );
+                        });
+                        notice.append(skippedDetails.append(skippedList));
+                        console.warn('Import completed with skipped images:', skippedImages);
+                    }
+
                     feedbackDiv.empty().append(
-                        $('<div>').addClass('notice notice-success').append(successParagraph)
+                        notice
                     );
                     $('#wechat_url').val('');
                 } else {

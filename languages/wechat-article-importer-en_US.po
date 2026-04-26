@@ -5,10 +5,10 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: WeChat Article Importer 0.2.0\n"
+"Project-Id-Version: WeChat Article Importer 0.2.1\n"
 "Report-Msgid-Bugs-To: https://github.com/ittia-research\n"
-"POT-Creation-Date: 2026-04-26 16:32+0800\n"
-"PO-Revision-Date: 2026-04-26 16:32+0800\n"
+"POT-Creation-Date: 2026-04-26 19:17+0800\n"
+"PO-Revision-Date: 2026-04-26 19:17+0800\n"
 "Last-Translator: ITTIA <hello@ittia.net>\n"
 "Language-Team: English (United States)\n"
 "Language: en_US\n"
@@ -17,7 +17,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: wechat-article-importer.php:39 wechat-article-importer.php:323
+#: wechat-article-importer.php:39 wechat-article-importer.php:326
 msgid "WeChat Article Importer"
 msgstr "WeChat Article Importer"
 
@@ -66,10 +66,8 @@ msgid "Step 2/3: %1$s %2$s. Please keep this page open..."
 msgstr "Step 2/3: %1$s %2$s. Please keep this page open..."
 
 #: wechat-article-importer.php:71
-msgid ""
-"A serious server error occurred while downloading images. The import has "
-"been stopped."
-msgstr "A serious server error occurred while downloading images. The import has been stopped."
+msgid "A server error occurred while downloading this image."
+msgstr "A server error occurred while downloading this image."
 
 #: wechat-article-importer.php:72
 msgid "Creating post..."
@@ -85,172 +83,207 @@ msgstr "Step 3/3: Images are processed. Finalizing and creating the post..."
 msgid "The article was imported as a draft. %s"
 msgstr "The article was imported as a draft. %s"
 
-#: wechat-article-importer.php:76
+#. translators: %s: Number of skipped images.
+#: wechat-article-importer.php:77
+#, php-format
+msgid ""
+"The article was imported as a draft, but %s images could not be downloaded."
+msgstr ""
+"The article was imported as a draft, but %s images could not be downloaded."
+
+#: wechat-article-importer.php:78
+msgid "Skipped image URLs"
+msgstr "Skipped image URLs"
+
+#: wechat-article-importer.php:79
 msgid "View or edit it here"
 msgstr "View or edit it here"
 
-#: wechat-article-importer.php:77
+#: wechat-article-importer.php:80
 msgid "Failed to create the post."
 msgstr "Failed to create the post."
 
-#: wechat-article-importer.php:78
+#: wechat-article-importer.php:81
 msgid "A server error occurred while creating the post."
 msgstr "A server error occurred while creating the post."
 
 #. translators: %s: Import error message.
-#: wechat-article-importer.php:80
+#: wechat-article-importer.php:83
 #, php-format
 msgid "Import failed: %s"
 msgstr "Import failed: %s"
 
 #. translators: %s: Server debug details.
-#: wechat-article-importer.php:82
+#: wechat-article-importer.php:85
 #, php-format
 msgid "Server debug information: %s"
 msgstr "Server debug information: %s"
 
 #. translators: %s: Partial raw server response text.
-#: wechat-article-importer.php:84
+#: wechat-article-importer.php:87
 #, php-format
 msgid "Partial server response: %s"
 msgstr "Partial server response: %s"
 
-#: wechat-article-importer.php:85 wechat-article-importer.php:348
+#: wechat-article-importer.php:88 wechat-article-importer.php:351
 msgid "Start Import"
 msgstr "Start Import"
 
-#: wechat-article-importer.php:324
+#: wechat-article-importer.php:327
 msgid ""
 "Paste a WeChat Official Account article link to fetch the title, content, "
 "cover image, and inline images automatically, then save the result as a "
 "WordPress draft."
-msgstr "Paste a WeChat Official Account article link to fetch the title, content, cover image, and inline images automatically, then save the result as a WordPress draft."
+msgstr ""
+"Paste a WeChat Official Account article link to fetch the title, content, "
+"cover image, and inline images automatically, then save the result as a "
+"WordPress draft."
 
-#: wechat-article-importer.php:325
+#: wechat-article-importer.php:328
 msgid ""
 "Imported content is converted into WordPress-stable HTML: layout-critical "
 "inline styles are preserved, while WeChat editor markers, empty attributes, "
 "and unstable placeholder elements are removed."
-msgstr "Imported content is converted into WordPress-stable HTML: layout-critical inline styles are preserved, while WeChat editor markers, empty attributes, and unstable placeholder elements are removed."
+msgstr ""
+"Imported content is converted into WordPress-stable HTML: layout-critical "
+"inline styles are preserved, while WeChat editor markers, empty attributes, "
+"and unstable placeholder elements are removed."
 
-#: wechat-article-importer.php:331
+#: wechat-article-importer.php:334
 msgid "Article URL"
 msgstr "Article URL"
 
-#: wechat-article-importer.php:332
+#: wechat-article-importer.php:335
 msgid "Paste the full https://mp.weixin.qq.com/... link"
 msgstr "Paste the full https://mp.weixin.qq.com/... link"
 
-#: wechat-article-importer.php:335
+#: wechat-article-importer.php:338
 msgid "Import options"
 msgstr "Import options"
 
-#: wechat-article-importer.php:340
+#: wechat-article-importer.php:343
 msgid "Generate thumbnails for imported images"
 msgstr "Generate thumbnails for imported images"
 
-#: wechat-article-importer.php:342
+#: wechat-article-importer.php:345
 msgid ""
 "Recommended. Disable this only if your server is slow or fails while "
 "importing articles with very large images."
-msgstr "Recommended. Disable this only if your server is slow or fails while importing articles with very large images."
+msgstr ""
+"Recommended. Disable this only if your server is slow or fails while "
+"importing articles with very large images."
 
-#: wechat-article-importer.php:360 wechat-article-importer.php:410
-#: wechat-article-importer.php:463
+#: wechat-article-importer.php:363 wechat-article-importer.php:413
+#: wechat-article-importer.php:466
 msgid "Insufficient permissions."
 msgstr "Insufficient permissions."
 
-#: wechat-article-importer.php:364 wechat-article-importer.php:509
+#: wechat-article-importer.php:367 wechat-article-importer.php:512
 msgid "Article URL cannot be empty."
 msgstr "Article URL cannot be empty."
 
-#: wechat-article-importer.php:367 wechat-article-importer.php:512
-#: wechat-article-importer.php:578
+#: wechat-article-importer.php:370 wechat-article-importer.php:515
+#: wechat-article-importer.php:581
 msgid ""
 "Only WeChat Official Account article links from https://mp.weixin.qq.com/ "
 "are supported."
-msgstr "Only WeChat Official Account article links from https://mp.weixin.qq.com/ are supported."
+msgstr ""
+"Only WeChat Official Account article links from https://mp.weixin.qq.com/ "
+"are supported."
 
-#: wechat-article-importer.php:381 wechat-article-importer.php:525
+#: wechat-article-importer.php:384 wechat-article-importer.php:528
 msgid ""
 "Could not parse the article content. The link may be invalid or the WeChat "
 "page structure may have changed."
-msgstr "Could not parse the article content. The link may be invalid or the WeChat page structure may have changed."
+msgstr ""
+"Could not parse the article content. The link may be invalid or the WeChat "
+"page structure may have changed."
 
-#: wechat-article-importer.php:401
+#: wechat-article-importer.php:404
 msgid "Article parsed successfully. Preparing to download images..."
 msgstr "Article parsed successfully. Preparing to download images..."
 
-#: wechat-article-importer.php:418
+#: wechat-article-importer.php:421
 msgid "Task ID or image URL is invalid."
 msgstr "Task ID or image URL is invalid."
 
-#: wechat-article-importer.php:423 wechat-article-importer.php:472
+#: wechat-article-importer.php:426 wechat-article-importer.php:475
 msgid "The task has expired or does not exist."
 msgstr "The task has expired or does not exist."
 
-#: wechat-article-importer.php:427
+#: wechat-article-importer.php:430
 msgid ""
 "The image URL does not belong to the current import task or is not from an "
 "allowed WeChat image domain."
-msgstr "The image URL does not belong to the current import task or is not from an allowed WeChat image domain."
+msgstr ""
+"The image URL does not belong to the current import task or is not from an "
+"allowed WeChat image domain."
 
 #. translators: %s: Image download error message.
-#: wechat-article-importer.php:440
+#: wechat-article-importer.php:443
 #, php-format
 msgid "Image download failed: %s"
 msgstr "Image download failed: %s"
 
-#: wechat-article-importer.php:467
+#: wechat-article-importer.php:470
 msgid "Task ID is invalid."
 msgstr "Task ID is invalid."
 
 #. translators: %s: Post creation error message.
-#: wechat-article-importer.php:483
+#: wechat-article-importer.php:486
 #, php-format
 msgid "Failed to create the post: %s"
 msgstr "Failed to create the post: %s"
 
 #. translators: %s: HTTP or cURL error message.
-#: wechat-article-importer.php:607
+#: wechat-article-importer.php:615
 #, php-format
 msgid ""
 "Could not fetch article content. The link may be invalid or the server may "
 "have a network problem. %s"
-msgstr "Could not fetch article content. The link may be invalid or the server may have a network problem. %s"
+msgstr ""
+"Could not fetch article content. The link may be invalid or the server may "
+"have a network problem. %s"
 
 #. translators: %s: Current date and time.
-#: wechat-article-importer.php:633
+#: wechat-article-importer.php:641
 #, php-format
 msgid "Untitled - %s"
 msgstr "Untitled - %s"
 
-#: wechat-article-importer.php:1533
+#: wechat-article-importer.php:1541
 msgid "Image URL cannot be empty."
 msgstr "Image URL cannot be empty."
 
-#: wechat-article-importer.php:1536
+#: wechat-article-importer.php:1544
 msgid "The image URL is not from an allowed WeChat image domain."
 msgstr "The image URL is not from an allowed WeChat image domain."
 
 #. translators: %s: HTTP or cURL error message.
-#: wechat-article-importer.php:1584
+#: wechat-article-importer.php:1597
 #, php-format
 msgid "cURL image download failed. %s"
 msgstr "cURL image download failed. %s"
 
-#: wechat-article-importer.php:1587
+#: wechat-article-importer.php:1600
 msgid "The image file exceeds the allowed size."
 msgstr "The image file exceeds the allowed size."
 
-#: wechat-article-importer.php:1593
+#: wechat-article-importer.php:1606
 msgid "The image format is unsupported or cannot be verified."
 msgstr "The image format is unsupported or cannot be verified."
 
-#: wechat-article-importer.php:1615
+#: wechat-article-importer.php:1628
 msgid "Could not write image data to the file."
 msgstr "Could not write image data to the file."
 
-#: wechat-article-importer.php:1621
+#: wechat-article-importer.php:1634
 msgid "The image extension does not match the detected file type."
 msgstr "The image extension does not match the detected file type."
+
+#~ msgid ""
+#~ "A serious server error occurred while downloading images. The import has "
+#~ "been stopped."
+#~ msgstr ""
+#~ "A serious server error occurred while downloading images. The import has "
+#~ "been stopped."

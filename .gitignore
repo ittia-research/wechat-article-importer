@@ -1,3 +1,7 @@
+.dev
+.omx
+.omc
+
 # OS/editor noise
 .DS_Store
 Thumbs.db
