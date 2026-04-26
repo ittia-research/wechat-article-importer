@@ -1,0 +1,17 @@
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Local/runtime artifacts
+.env
+*.log
+node_modules/
+vendor/
+coverage/
+build/
+dist/
+*.zip
