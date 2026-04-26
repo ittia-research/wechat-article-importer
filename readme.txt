@@ -3,7 +3,7 @@ Contributors: ittia, xiaozhai001
 Tags: wechat, wordpress, import, 微信公众号文章, 采集, 导入
 Requires at least: 5.0
 Tested up to: 6.8
-Stable tag: 0.1.0
+Stable tag: 0.2.0
 Requires PHP: 7.4
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -21,7 +21,7 @@ Paste a WeChat Official Account article URL and the plugin will fetch:
 * Featured image
 * Inline images, downloaded into the WordPress media library
 
-The importer runs as a multi-step admin AJAX flow so large articles can be processed without a single long blocking request.
+The importer runs as a multi-step admin AJAX flow so large articles can be processed without a single long blocking request. Before saving, it converts WeChat source HTML into WordPress-stable HTML: layout-critical inline styles are preserved, image/background URLs are localized, invalid block-wrapping image links are normalized, intentional blank spacers are rewritten into editor-stable inline markers, placeholder SVGs are replaced, and WeChat-only custom tags/attributes are removed.
 
 == Installation ==
 
@@ -40,6 +40,14 @@ It should work for many WeChat Official Account articles, but WeChat page struct
 No. Work is only triggered from the WordPress admin importer page.
 
 == Changelog ==
+
+= 0.2.0 =
+* Added stable WordPress HTML cleanup that preserves visual WeChat styling while removing WeChat editor/source garbage.
+* Added editor-stable image link normalization, intentional blank-spacer handling, placeholder SVG removal, and scoped Classic Editor integration without theme-specific editor sizing.
+* Hardened imports with WeChat article/media URL allowlists, TLS verification, verified raster-only media uploads, and unsafe URL/CSS/SVG stripping.
+* Replaced fragile regex body parsing with DOM-based content extraction.
+* Added media dedupe compatibility with upstream `_iafw_source_md5` media metadata and new content-hash metadata for this fork.
+* Added fixture-based regression tests for cleanup, parsing, editor scoping, URL validation, and security hardening.
 
 = 0.1.0 =
 * Fork scaffolded from Import Articles from WeChat 1.8.6.
