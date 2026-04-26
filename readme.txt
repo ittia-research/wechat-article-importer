@@ -27,7 +27,7 @@ The importer runs as a multi-step admin AJAX flow so large articles can be proce
 
 1. Upload the `wechat-article-importer` folder to `/wp-content/plugins/`.
 2. Activate "WeChat Article Importer" from the WordPress Plugins screen.
-3. Open the "WeChat Article Importer" admin menu item and paste a `https://mp.weixin.qq.com/...` article URL.
+3. Open the "Import WeChat" admin menu item and paste a `https://mp.weixin.qq.com/...` article URL.
 
 == Frequently Asked Questions ==
 

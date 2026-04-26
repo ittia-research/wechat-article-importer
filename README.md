@@ -8,7 +8,7 @@ WordPress plugin fork for importing WeChat Official Account articles into WordPr
 wechat-article-importer.php  WordPress plugin entry point and importer logic
 js/importer.js               Admin AJAX importer UI flow
 readme.txt                   WordPress.org-style plugin readme
-languages/                   Translation files placeholder
+languages/                   Translation template and English/Chinese catalogs
 ```
 
 ## Development notes
@@ -33,7 +33,30 @@ Run checks after edits:
 ```bash
 php -l wechat-article-importer.php
 node --check js/importer.js
+msgfmt --check --check-format languages/wechat-article-importer-en_US.po
+msgfmt --check --check-format languages/wechat-article-importer-zh_CN.po
 php tests/run.php
+```
+
+## Translation workflow
+
+JavaScript UI strings are localized through the PHP `wai_ajax.i18n` map so one
+gettext catalog covers the classic admin UI. When source strings change,
+regenerate the template, update the `.po` catalogs, and compile the `.mo`
+binaries:
+
+```bash
+xgettext --from-code=UTF-8 --language=PHP \
+  --keyword=__ --keyword=_e --keyword=esc_html_e --keyword=esc_attr_e \
+  --add-comments=translators: \
+  --package-name='WeChat Article Importer' --package-version='0.2.0' \
+  --msgid-bugs-address='https://github.com/ittia-research' \
+  --copyright-holder='ITTIA' \
+  --output=languages/wechat-article-importer.pot \
+  wechat-article-importer.php
+
+msgfmt --check --check-format --output-file=languages/wechat-article-importer-en_US.mo languages/wechat-article-importer-en_US.po
+msgfmt --check --check-format --output-file=languages/wechat-article-importer-zh_CN.mo languages/wechat-article-importer-zh_CN.po
 ```
 
 ## Acknowledgment

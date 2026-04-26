@@ -5,6 +5,77 @@ jQuery(document).ready(function ($) {
 
     var taskData = {};
     var REQUEST_DELAY = 500;
+    var strings = (window.wai_ajax && window.wai_ajax.i18n) || {};
+
+    function i18n(key, fallback) {
+        return Object.prototype.hasOwnProperty.call(strings, key) ? strings[key] : fallback;
+    }
+
+    function formatString(template, values) {
+        return template.replace(/%(\d+\$)?s/g, function (match, position) {
+            var index = position ? parseInt(position, 10) - 1 : 0;
+            var value = values[index];
+            if (!position) {
+                values = values.slice(1);
+            }
+            return value === undefined || value === null ? '' : String(value);
+        });
+    }
+
+    function safeUrl(url) {
+        var parser = document.createElement('a');
+        parser.href = String(url || '');
+        return parser.protocol === 'http:' || parser.protocol === 'https:' ? parser.href : '#';
+    }
+
+    function showTextNotice(type, message) {
+        feedbackDiv.empty().append(
+            $('<div>').addClass('notice notice-' + type).append(
+                $('<p>').text(message)
+            )
+        );
+    }
+
+    function showProgressNotice(message, percentComplete) {
+        var safePercent = Math.max(0, Math.min(100, Number(percentComplete) || 0));
+        var progressBar = $('<div>').css({
+            width: '100%',
+            background: '#eee',
+            borderRadius: '3px',
+            overflow: 'hidden'
+        }).append(
+            $('<div>').css({
+                width: safePercent + '%',
+                background: '#0073aa',
+                height: '10px'
+            })
+        );
+
+        feedbackDiv.empty().append(
+            $('<div>').addClass('notice notice-info')
+                .append($('<p>').text(message))
+                .append(progressBar)
+        );
+    }
+
+    function appendTemplateWithLink(container, template, linkText, href) {
+        var placeholderIndex = template.indexOf('%s');
+        var link = $('<a>')
+            .attr('href', safeUrl(href))
+            .attr('target', '_blank')
+            .attr('rel', 'noopener noreferrer')
+            .text(linkText);
+
+        if (placeholderIndex === -1) {
+            container.append(document.createTextNode(template + ' ')).append(link);
+            return;
+        }
+
+        container
+            .append(document.createTextNode(template.slice(0, placeholderIndex)))
+            .append(link)
+            .append(document.createTextNode(template.slice(placeholderIndex + 2)));
+    }
 
     importForm.on('submit', function (event) {
         event.preventDefault();
@@ -13,7 +84,7 @@ jQuery(document).ready(function ($) {
         var generateThumbnails = $('#wai_gen_thumbs').is(':checked');
 
         if (wechatUrl === '' || !wechatUrl.startsWith('https://mp.weixin.qq.com/')) {
-            feedbackDiv.html('<div class="notice notice-error"><p>请输入一个有效的微信文章链接。</p></div>');
+            showTextNotice('error', i18n('invalid_url', 'Please enter a valid WeChat article URL.'));
             return;
         }
 
@@ -22,8 +93,8 @@ jQuery(document).ready(function ($) {
 
 
     function startImportProcess(wechatUrl, generateThumbnails) {
-        submitButton.prop('disabled', true).val('正在解析文章...');
-        feedbackDiv.html('<div class="notice notice-info"><p><strong>步骤 1/3:</strong> 正在解析文章结构，请稍候...</p></div>');
+        submitButton.prop('disabled', true).val(i18n('parsing_article', 'Parsing article...'));
+        showTextNotice('info', i18n('step_1_message', 'Step 1/3: Parsing the article structure. Please wait...'));
         $('.notice-success, .notice-error').remove();
 
         $.ajax({
@@ -49,11 +120,11 @@ jQuery(document).ready(function ($) {
                         finishImportProcess();
                     }
                 } else {
-                    handleError(response.data.error || '解析文章失败。');
+                    handleError(response.data.error || i18n('parse_article_failed', 'Failed to parse the article.'));
                 }
             },
             error: function (jqXHR) {
-                handleError('解析文章时发生服务器错误。', jqXHR);
+                handleError(i18n('parse_server_error', 'A server error occurred while parsing the article.'), jqXHR);
             }
         });
     }
@@ -68,9 +139,12 @@ jQuery(document).ready(function ($) {
         var currentImageUrl = taskData.image_urls[taskData.processed_count];
         var progressText = (taskData.processed_count + 1) + ' / ' + taskData.total_images;
 
-        var statusText = taskData.generate_thumbnails ? '下载并处理图片' : '正在快速下载图片';
-        submitButton.val(statusText + ' (' + progressText + ')');
-        feedbackDiv.html('<div class="notice notice-info"><p><strong>步骤 2/3:</strong> ' + statusText + ' ' + progressText + '，请保持页面开启...</p><div style="width: 100%; background: #eee; border-radius: 3px; overflow: hidden;"><div style="width: ' + ((taskData.processed_count + 1) / taskData.total_images * 100) + '%; background: #0073aa; height: 10px;"></div></div></div>');
+        var statusText = taskData.generate_thumbnails ? i18n('download_and_process_image', 'Download and process image') : i18n('quick_download_image', 'Fast image download');
+        submitButton.val(formatString(i18n('progress_button_label', '%1$s (%2$s)'), [statusText, progressText]));
+        showProgressNotice(
+            formatString(i18n('step_2_message', 'Step 2/3: %1$s %2$s. Please keep this page open...'), [statusText, progressText]),
+            (taskData.processed_count + 1) / taskData.total_images * 100
+        );
 
         $.ajax({
             url: wai_ajax.ajax_url,
@@ -94,14 +168,14 @@ jQuery(document).ready(function ($) {
                 }
             },
             error: function (jqXHR) {
-                handleError('下载图片时发生严重服务器错误，导入已中止。', jqXHR);
+                handleError(i18n('image_download_server_error', 'A serious server error occurred while downloading images. The import has been stopped.'), jqXHR);
             }
         });
     }
 
     function finishImportProcess() {
-        submitButton.val('正在生成文章...');
-        feedbackDiv.html('<div class="notice notice-info"><p><strong>步骤 3/3:</strong> 图片处理完成，正在最后整理并生成文章...</p></div>');
+        submitButton.val(i18n('creating_post', 'Creating post...'));
+        showTextNotice('info', i18n('step_3_message', 'Step 3/3: Images are processed. Finalizing and creating the post...'));
         $.ajax({
             url: wai_ajax.ajax_url,
             type: 'POST',
@@ -112,34 +186,51 @@ jQuery(document).ready(function ($) {
             },
             success: function (response) {
                 if (response.success) {
-                    var successMessage = '<div class="notice notice-success"><p>文章成功导入为草稿！ <a href="' + response.data.edit_link + '" target="_blank">点击这里查看或编辑</a></p></div>';
-                    feedbackDiv.html(successMessage);
+                    var successParagraph = $('<p>');
+                    appendTemplateWithLink(
+                        successParagraph,
+                        i18n('imported_as_draft_template', 'The article was imported as a draft. %s'),
+                        i18n('view_or_edit', 'View or edit it here'),
+                        response.data.edit_link
+                    );
+                    feedbackDiv.empty().append(
+                        $('<div>').addClass('notice notice-success').append(successParagraph)
+                    );
                     $('#wechat_url').val('');
                 } else {
-                    handleError(response.data.error || '生成文章失败。');
+                    handleError(response.data.error || i18n('create_post_failed', 'Failed to create the post.'));
                 }
             },
             error: function (jqXHR) {
-                handleError('生成文章时发生服务器错误。', jqXHR);
+                handleError(i18n('create_post_server_error', 'A server error occurred while creating the post.'), jqXHR);
             },
             complete: function() {
-                submitButton.prop('disabled', false).val('开始导入');
+                submitButton.prop('disabled', false).val(i18n('start_import', 'Start Import'));
             }
         });
     }
 
     function handleError(errorMessage, jqXHR) {
-        var errorText = '导入失败：' + errorMessage;
+        var paragraph = $('<p>').text(
+            formatString(i18n('import_failed_message', 'Import failed: %s'), [errorMessage])
+        );
+
         if (jqXHR && jqXHR.responseText) {
             var responseText = jqXHR.responseText;
             var phpErrorMatch = responseText.match(/<b>(Fatal error|Parse error|Warning)<\/b>:(.*?) in <b>(.*?)<\/b> on line <b>(\d+)<\/b>/);
-            if(phpErrorMatch){
-                errorText += '<br><small>服务器调试信息: ' + phpErrorMatch[0] + '</small>';
-            } else {
-                errorText += '<br><small>服务器响应(部分): ' + responseText.substring(0, 300) + '</small>';
-            }
+            var detailTemplate = phpErrorMatch ?
+                i18n('server_debug_info_message', 'Server debug information: %s') :
+                i18n('partial_server_response', 'Partial server response: %s');
+            var detailText = phpErrorMatch ? phpErrorMatch[0] : responseText.substring(0, 300);
+
+            paragraph
+                .append($('<br>'))
+                .append($('<small>').text(formatString(detailTemplate, [detailText])));
         }
-        feedbackDiv.html('<div class="notice notice-error"><p>' + errorText + '</p></div>');
-        submitButton.prop('disabled', false).val('开始导入');
+
+        feedbackDiv.empty().append(
+            $('<div>').addClass('notice notice-error').append(paragraph)
+        );
+        submitButton.prop('disabled', false).val(i18n('start_import', 'Start Import'));
     }
 });

@@ -28,9 +28,20 @@ const WAI_EDITOR_BODY_CLASS = 'wai-wechat-import-editor';
 const WAI_MAX_IMAGE_BYTES = 20971520;
 
 
+add_action( 'plugins_loaded', 'wai_load_textdomain' );
+function wai_load_textdomain() {
+	load_plugin_textdomain( 'wechat-article-importer', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
+}
+
 add_action( 'admin_menu', 'wai_add_admin_menu' );
 function wai_add_admin_menu() {
-	add_menu_page( 'WeChat Article Importer', 'WeChat Article Importer', 'manage_options', 'wechat-article-importer', 'wai_importer_page_html' );
+	add_menu_page(
+		__( 'WeChat Article Importer', 'wechat-article-importer' ),
+		__( 'Import WeChat', 'wechat-article-importer' ),
+		'manage_options',
+		'wechat-article-importer',
+		'wai_importer_page_html'
+	);
 }
 
 add_action( 'admin_enqueue_scripts', 'wai_enqueue_admin_scripts' );
@@ -45,6 +56,34 @@ function wai_enqueue_admin_scripts( $hook ) {
 		array(
 			'ajax_url' => admin_url( 'admin-ajax.php' ),
 			'nonce'    => wp_create_nonce( 'wai_ajax_nonce' ),
+			'i18n'     => array(
+				'invalid_url'                   => __( 'Please enter a valid WeChat article URL.', 'wechat-article-importer' ),
+				'parsing_article'               => __( 'Parsing article...', 'wechat-article-importer' ),
+				'step_1_message'                => __( 'Step 1/3: Parsing the article structure. Please wait...', 'wechat-article-importer' ),
+				'parse_article_failed'          => __( 'Failed to parse the article.', 'wechat-article-importer' ),
+				'parse_server_error'            => __( 'A server error occurred while parsing the article.', 'wechat-article-importer' ),
+				'download_and_process_image'    => __( 'Download and process image', 'wechat-article-importer' ),
+				'quick_download_image'          => __( 'Fast image download', 'wechat-article-importer' ),
+				/* translators: 1: Image processing status, 2: Progress count, for example "1 / 5". */
+				'progress_button_label'         => __( '%1$s (%2$s)', 'wechat-article-importer' ),
+				/* translators: 1: Image processing status, 2: Progress count, for example "1 / 5". */
+				'step_2_message'                => __( 'Step 2/3: %1$s %2$s. Please keep this page open...', 'wechat-article-importer' ),
+				'image_download_server_error'   => __( 'A serious server error occurred while downloading images. The import has been stopped.', 'wechat-article-importer' ),
+				'creating_post'                 => __( 'Creating post...', 'wechat-article-importer' ),
+				'step_3_message'                => __( 'Step 3/3: Images are processed. Finalizing and creating the post...', 'wechat-article-importer' ),
+				/* translators: %s: Linked "View or edit it here" text. */
+				'imported_as_draft_template'    => __( 'The article was imported as a draft. %s', 'wechat-article-importer' ),
+				'view_or_edit'                  => __( 'View or edit it here', 'wechat-article-importer' ),
+				'create_post_failed'            => __( 'Failed to create the post.', 'wechat-article-importer' ),
+				'create_post_server_error'      => __( 'A server error occurred while creating the post.', 'wechat-article-importer' ),
+				/* translators: %s: Import error message. */
+				'import_failed_message'         => __( 'Import failed: %s', 'wechat-article-importer' ),
+				/* translators: %s: Server debug details. */
+				'server_debug_info_message'     => __( 'Server debug information: %s', 'wechat-article-importer' ),
+				/* translators: %s: Partial raw server response text. */
+				'partial_server_response'       => __( 'Partial server response: %s', 'wechat-article-importer' ),
+				'start_import'                  => __( 'Start Import', 'wechat-article-importer' ),
+			),
 		)
 	);
 }
@@ -282,31 +321,31 @@ function wai_importer_page_html() {
 	?>
 	<div class="wrap">
 		<h1><?php esc_html_e( 'WeChat Article Importer', 'wechat-article-importer' ); ?></h1>
-		<p><?php esc_html_e( '粘贴微信公众号文章链接，自动抓取标题、内容、封面图及文章内图片，并保存为 WordPress 草稿。', 'wechat-article-importer' ); ?></p>
-		<p class="description"><?php esc_html_e( '导入内容会转换为 WordPress 编辑器更稳定的 HTML：保留内联样式和版式，移除微信编辑器内部标记、空属性和无法稳定编辑的占位元素。', 'wechat-article-importer' ); ?></p>
+		<p><?php esc_html_e( 'Paste a WeChat Official Account article link to fetch the title, content, cover image, and inline images automatically, then save the result as a WordPress draft.', 'wechat-article-importer' ); ?></p>
+		<p class="description"><?php esc_html_e( 'Imported content is converted into WordPress-stable HTML: layout-critical inline styles are preserved, while WeChat editor markers, empty attributes, and unstable placeholder elements are removed.', 'wechat-article-importer' ); ?></p>
 
 		<form id="wai-importer-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 			<table class="form-table">
 				<tbody>
 					<tr>
-						<th scope="row"><label for="wechat_url"><?php esc_html_e( '文章链接', 'wechat-article-importer' ); ?></label></th>
-						<td><input type="url" id="wechat_url" name="wechat_url" style="width:100%; max-width: 600px;" placeholder="<?php esc_attr_e( '请粘贴完整的 https://mp.weixin.qq.com/... 链接', 'wechat-article-importer' ); ?>" required></td>
+						<th scope="row"><label for="wechat_url"><?php esc_html_e( 'Article URL', 'wechat-article-importer' ); ?></label></th>
+						<td><input type="url" id="wechat_url" name="wechat_url" style="width:100%; max-width: 600px;" placeholder="<?php esc_attr_e( 'Paste the full https://mp.weixin.qq.com/... link', 'wechat-article-importer' ); ?>" required></td>
 					</tr>
 					<tr>
-						<th scope="row"><label for="wai_gen_thumbs"><?php esc_html_e( '导入选项', 'wechat-article-importer' ); ?></label></th>
+						<th scope="row"><label for="wai_gen_thumbs"><?php esc_html_e( 'Import options', 'wechat-article-importer' ); ?></label></th>
 						<td>
 							<fieldset>
 								<label for="wai_gen_thumbs">
 									<input type="checkbox" id="wai_gen_thumbs" name="wai_gen_thumbs" checked>
-									<span><?php esc_html_e( '为导入的图片生成缩略图', 'wechat-article-importer' ); ?></span>
+									<span><?php esc_html_e( 'Generate thumbnails for imported images', 'wechat-article-importer' ); ?></span>
 								</label>
-								<p class="description"><?php esc_html_e( '建议开启。如果您的服务器性能较差，或在导入超大图片的文章时卡死/失败，请取消勾选此项。', 'wechat-article-importer' ); ?></p>
+								<p class="description"><?php esc_html_e( 'Recommended. Disable this only if your server is slow or fails while importing articles with very large images.', 'wechat-article-importer' ); ?></p>
 							</fieldset>
 						</td>
 					</tr>
 				</tbody>
 			</table>
-			<?php submit_button( __( '开始导入', 'wechat-article-importer' ), 'primary', 'submit', true, array( 'class' => 'wai-submit-button' ) ); ?>
+			<?php submit_button( __( 'Start Import', 'wechat-article-importer' ), 'primary', 'submit', true, array( 'class' => 'wai-submit-button' ) ); ?>
 		</form>
 
 		<div id="wai-feedback" style="margin-top: 20px;"></div>
@@ -318,14 +357,14 @@ add_action( 'wp_ajax_wai_start_import', 'wai_handle_ajax_start_import' );
 function wai_handle_ajax_start_import() {
 	check_ajax_referer( 'wai_ajax_nonce' );
 	if ( ! current_user_can( 'manage_options' ) ) {
-		wp_send_json_error( array( 'error' => '权限不足。' ) );
+		wp_send_json_error( array( 'error' => __( 'Insufficient permissions.', 'wechat-article-importer' ) ) );
 	}
 	$url = isset( $_POST['wechat_url'] ) ? esc_url_raw( wp_unslash( $_POST['wechat_url'] ) ) : '';
 	if ( empty( $url ) ) {
-		wp_send_json_error( array( 'error' => '文章链接不能为空。' ) );
+		wp_send_json_error( array( 'error' => __( 'Article URL cannot be empty.', 'wechat-article-importer' ) ) );
 	}
 	if ( ! wai_is_allowed_article_url( $url ) ) {
-		wp_send_json_error( array( 'error' => '仅支持 https://mp.weixin.qq.com/ 的微信公众号文章链接。' ) );
+		wp_send_json_error( array( 'error' => __( 'Only WeChat Official Account article links from https://mp.weixin.qq.com/ are supported.', 'wechat-article-importer' ) ) );
 	}
 
 	$cookie_jar_path = wai_create_cookie_jar_path();
@@ -339,7 +378,7 @@ function wai_handle_ajax_start_import() {
 	$article = wai_parse_wechat_article_html( $html );
 	if ( empty( $article['content_html'] ) ) {
 		wp_delete_file( $cookie_jar_path );
-		wp_send_json_error( array( 'error' => '无法解析文章正文，可能链接已失效或微信页面结构已变化。' ) );
+		wp_send_json_error( array( 'error' => __( 'Could not parse the article content. The link may be invalid or the WeChat page structure may have changed.', 'wechat-article-importer' ) ) );
 	}
 
 	$task_id   = 'wai_' . md5( uniqid( 'task_', true ) );
@@ -359,7 +398,7 @@ function wai_handle_ajax_start_import() {
 		array(
 			'task_id'    => $task_id,
 			'image_urls' => $article['image_urls'],
-			'message'    => '文章解析成功，准备下载图片...',
+			'message'    => __( 'Article parsed successfully. Preparing to download images...', 'wechat-article-importer' ),
 		)
 	);
 }
@@ -368,7 +407,7 @@ add_action( 'wp_ajax_wai_process_image', 'wai_handle_ajax_process_image' );
 function wai_handle_ajax_process_image() {
 	check_ajax_referer( 'wai_ajax_nonce' );
 	if ( ! current_user_can( 'manage_options' ) ) {
-		wp_send_json_error( array( 'error' => '权限不足。' ) );
+		wp_send_json_error( array( 'error' => __( 'Insufficient permissions.', 'wechat-article-importer' ) ) );
 	}
 	$task_id   = isset( $_POST['task_id'] ) ? sanitize_key( $_POST['task_id'] ) : '';
 	$image_url = isset( $_POST['image_url'] ) ? esc_url_raw( wp_unslash( $_POST['image_url'] ) ) : '';
@@ -376,16 +415,16 @@ function wai_handle_ajax_process_image() {
 	$generate_thumbnails = isset( $_POST['generate_thumbnails'] ) && 'true' === $_POST['generate_thumbnails'];
 
 	if ( empty( $task_id ) || empty( $image_url ) ) {
-		wp_send_json_error( array( 'error' => '任务ID或图片URL无效。' ) );
+		wp_send_json_error( array( 'error' => __( 'Task ID or image URL is invalid.', 'wechat-article-importer' ) ) );
 	}
 
 	$task_data = get_transient( $task_id );
 	if ( false === $task_data ) {
-		wp_send_json_error( array( 'error' => '任务已过期或不存在。' ) );
+		wp_send_json_error( array( 'error' => __( 'The task has expired or does not exist.', 'wechat-article-importer' ) ) );
 	}
 	$allowed_image_urls = isset( $task_data['image_urls'] ) && is_array( $task_data['image_urls'] ) ? array_map( 'wai_normalize_url_attribute', $task_data['image_urls'] ) : array();
 	if ( ! wai_is_allowed_image_url( $image_url ) || ! in_array( $image_url, $allowed_image_urls, true ) ) {
-		wp_send_json_error( array( 'error' => '图片URL不属于当前导入任务或不在允许的微信图片域名内。' ) );
+		wp_send_json_error( array( 'error' => __( 'The image URL does not belong to the current import task or is not from an allowed WeChat image domain.', 'wechat-article-importer' ) ) );
 	}
 
 	require_once ABSPATH . 'wp-admin/includes/media.php';
@@ -397,7 +436,8 @@ function wai_handle_ajax_process_image() {
 	if ( is_wp_error( $attachment_id ) ) {
 		wp_send_json_error(
 			array(
-				'error'     => '图片下载失败: ' . $attachment_id->get_error_message(),
+				/* translators: %s: Image download error message. */
+				'error'     => sprintf( __( 'Image download failed: %s', 'wechat-article-importer' ), $attachment_id->get_error_message() ),
 				'image_url' => $image_url,
 			)
 		);
@@ -420,16 +460,16 @@ add_action( 'wp_ajax_wai_finish_import', 'wai_handle_ajax_finish_import' );
 function wai_handle_ajax_finish_import() {
 	check_ajax_referer( 'wai_ajax_nonce' );
 	if ( ! current_user_can( 'manage_options' ) ) {
-		wp_send_json_error( array( 'error' => '权限不足。' ) );
+		wp_send_json_error( array( 'error' => __( 'Insufficient permissions.', 'wechat-article-importer' ) ) );
 	}
 	$task_id = isset( $_POST['task_id'] ) ? sanitize_key( $_POST['task_id'] ) : '';
 	if ( empty( $task_id ) ) {
-		wp_send_json_error( array( 'error' => '任务ID无效。' ) );
+		wp_send_json_error( array( 'error' => __( 'Task ID is invalid.', 'wechat-article-importer' ) ) );
 	}
 
 	$task_data = get_transient( $task_id );
 	if ( false === $task_data ) {
-		wp_send_json_error( array( 'error' => '任务已过期或不存在。' ) );
+		wp_send_json_error( array( 'error' => __( 'The task has expired or does not exist.', 'wechat-article-importer' ) ) );
 	}
 
 	$post_id = wai_insert_imported_post( $task_data );
@@ -439,7 +479,8 @@ function wai_handle_ajax_finish_import() {
 			wp_delete_file( $task_data['cookie_jar_path'] );
 		}
 		delete_transient( $task_id );
-		wp_send_json_error( array( 'error' => '创建文章失败：' . $post_id->get_error_message() ) );
+		/* translators: %s: Post creation error message. */
+		wp_send_json_error( array( 'error' => sprintf( __( 'Failed to create the post: %s', 'wechat-article-importer' ), $post_id->get_error_message() ) ) );
 	}
 
 	if ( ! empty( $task_data['cookie_jar_path'] ) ) {
@@ -465,10 +506,10 @@ function wai_handle_ajax_finish_import() {
 function wai_import_wechat_article( $url, $args = array() ) {
 	$url = esc_url_raw( $url );
 	if ( empty( $url ) ) {
-		return new WP_Error( 'wai_no_url', '文章链接不能为空。' );
+		return new WP_Error( 'wai_no_url', __( 'Article URL cannot be empty.', 'wechat-article-importer' ) );
 	}
 	if ( ! wai_is_allowed_article_url( $url ) ) {
-		return new WP_Error( 'wai_invalid_article_url', '仅支持 https://mp.weixin.qq.com/ 的微信公众号文章链接。' );
+		return new WP_Error( 'wai_invalid_article_url', __( 'Only WeChat Official Account article links from https://mp.weixin.qq.com/ are supported.', 'wechat-article-importer' ) );
 	}
 
 	$cookie_jar_path = wai_create_cookie_jar_path();
@@ -481,7 +522,7 @@ function wai_import_wechat_article( $url, $args = array() ) {
 	$article = wai_parse_wechat_article_html( $html );
 	if ( empty( $article['content_html'] ) ) {
 		wp_delete_file( $cookie_jar_path );
-		return new WP_Error( 'wai_parse_failed', '无法解析文章正文，可能链接已失效或微信页面结构已变化。' );
+		return new WP_Error( 'wai_parse_failed', __( 'Could not parse the article content. The link may be invalid or the WeChat page structure may have changed.', 'wechat-article-importer' ) );
 	}
 
 	$processed_images    = array();
@@ -534,7 +575,7 @@ function wai_create_cookie_jar_path() {
 function wai_fetch_remote_url( $url, $cookie_jar_path ) {
 	$url = wai_normalize_url_attribute( $url );
 	if ( ! wai_is_allowed_article_url( $url ) ) {
-		return new WP_Error( 'wai_invalid_article_url', '仅支持 https://mp.weixin.qq.com/ 的微信公众号文章链接。' );
+		return new WP_Error( 'wai_invalid_article_url', __( 'Only WeChat Official Account article links from https://mp.weixin.qq.com/ are supported.', 'wechat-article-importer' ) );
 	}
 
 	$ch = curl_init();
@@ -562,7 +603,8 @@ function wai_fetch_remote_url( $url, $cookie_jar_path ) {
 
 	if ( empty( $html ) || ( $http_code && $http_code >= 400 ) ) {
 		$message = $error ? $error : sprintf( 'HTTP Code: %s', $http_code );
-		return new WP_Error( 'wai_fetch_failed', '无法获取文章内容，可能链接已失效或服务器网络问题。' . $message );
+		/* translators: %s: HTTP or cURL error message. */
+		return new WP_Error( 'wai_fetch_failed', sprintf( __( 'Could not fetch article content. The link may be invalid or the server may have a network problem. %s', 'wechat-article-importer' ), $message ) );
 	}
 
 	return $html;
@@ -587,7 +629,8 @@ function wai_parse_wechat_article_html( $html ) {
 		}
 	}
 	if ( empty( $title ) ) {
-		$title = __( '未命名标题 - ', 'wechat-article-importer' ) . current_time( 'mysql' );
+		/* translators: %s: Current date and time. */
+		$title = sprintf( __( 'Untitled - %s', 'wechat-article-importer' ), current_time( 'mysql' ) );
 	}
 
 	$content_html = '';
@@ -1487,10 +1530,10 @@ function wai_sanitize_file_name( $filename ) {
 function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = null, $generate_thumbnails = false ) {
 	$image_url = wai_normalize_url_attribute( $image_url );
 	if ( empty( $image_url ) ) {
-		return new WP_Error( 'no_url', '图片链接为空。' );
+		return new WP_Error( 'no_url', __( 'Image URL cannot be empty.', 'wechat-article-importer' ) );
 	}
 	if ( ! wai_is_allowed_image_url( $image_url ) ) {
-		return new WP_Error( 'invalid_image_url', '图片链接不在允许的微信图片域名内。' );
+		return new WP_Error( 'invalid_image_url', __( 'The image URL is not from an allowed WeChat image domain.', 'wechat-article-importer' ) );
 	}
 
 	static $sideload_cache = array();
@@ -1537,16 +1580,17 @@ function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = nul
 
 	if ( 200 !== $http_code || empty( $image_data ) ) {
 		$message = $error ? $error : sprintf( 'HTTP Code: %s', $http_code );
-		return new WP_Error( 'download_failed', 'cURL 图片下载失败。' . $message );
+		/* translators: %s: HTTP or cURL error message. */
+		return new WP_Error( 'download_failed', sprintf( __( 'cURL image download failed. %s', 'wechat-article-importer' ), $message ) );
 	}
 	if ( strlen( $image_data ) > WAI_MAX_IMAGE_BYTES ) {
-		return new WP_Error( 'image_too_large', '图片文件超过允许大小。' );
+		return new WP_Error( 'image_too_large', __( 'The image file exceeds the allowed size.', 'wechat-article-importer' ) );
 	}
 
 	$mime_type = wai_detect_image_mime_type( $image_data );
 	$extension = wai_extension_for_allowed_image_mime( $mime_type );
 	if ( '' === $extension ) {
-		return new WP_Error( 'unsupported_image_type', '不支持或无法验证的图片格式。' );
+		return new WP_Error( 'unsupported_image_type', __( 'The image format is unsupported or cannot be verified.', 'wechat-article-importer' ) );
 	}
 
 	$content_md5            = md5( $image_data );
@@ -1568,13 +1612,13 @@ function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = nul
 	$filepath        = $upload_dir['path'] . '/' . $unique_filename;
 
 	if ( ! file_put_contents( $filepath, $image_data ) ) {
-		return new WP_Error( 'write_failed', __( '无法将图片数据写入文件。', 'wechat-article-importer' ) );
+		return new WP_Error( 'write_failed', __( 'Could not write image data to the file.', 'wechat-article-importer' ) );
 	}
 
 	$filetype = wp_check_filetype( $unique_filename, null );
 	if ( empty( $filetype['type'] ) || strtolower( $filetype['type'] ) !== $mime_type ) {
 		wp_delete_file( $filepath );
-		return new WP_Error( 'filetype_mismatch', '图片扩展名与实际类型不匹配。' );
+		return new WP_Error( 'filetype_mismatch', __( 'The image extension does not match the detected file type.', 'wechat-article-importer' ) );
 	}
 
 	$attachment    = array(

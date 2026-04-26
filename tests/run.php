@@ -2,14 +2,26 @@
 const ABSPATH = '/tmp/wordpress/';
 const HOUR_IN_SECONDS = 3600;
 
-function add_action() {}
-function add_filter() {}
+function add_action( $hook_name, $callback = '', $priority = 10, $accepted_args = 1 ) {
+	$GLOBALS['wai_test_actions'][] = func_get_args();
+}
+function add_filter( $hook_name, $callback = '', $priority = 10, $accepted_args = 1 ) {
+	$GLOBALS['wai_test_filters'][] = func_get_args();
+}
 function apply_filters( $tag, $value ) { return $value; }
-function add_menu_page() {}
+function add_menu_page() {
+	$GLOBALS['wai_test_menu_page_args'] = func_get_args();
+	return 'toplevel_page_wechat-article-importer';
+}
 function admin_url( $path = '' ) { return 'https://example.test/wp-admin/' . $path; }
 function plugin_dir_url() { return 'https://example.test/wp-content/plugins/wechat-article-importer/'; }
+function plugin_basename( $file ) { return basename( dirname( $file ) ) . '/' . basename( $file ); }
+function load_plugin_textdomain() {
+	$GLOBALS['wai_test_textdomain_args'] = func_get_args();
+	return true;
+}
 function wp_enqueue_script() {}
-function wp_localize_script() {}
+function wp_localize_script() { $GLOBALS['wai_test_localized_script_args'] = func_get_args(); }
 function wp_create_nonce() { return 'nonce'; }
 function esc_html_e( $text ) { echo $text; }
 function esc_attr_e( $text ) { echo $text; }
@@ -62,6 +74,28 @@ function assert_not_contains( $needle, $haystack, $message ) {
 function assert_contains( $needle, $haystack, $message ) {
 	assert_true( false !== strpos( $haystack, $needle ), $message );
 }
+
+$registered_callbacks = array();
+foreach ( $GLOBALS['wai_test_actions'] as $action_args ) {
+	$registered_callbacks[] = $action_args[0] . ':' . $action_args[1];
+}
+assert_true( in_array( 'plugins_loaded:wai_load_textdomain', $registered_callbacks, true ), 'textdomain loader is registered on plugins_loaded' );
+
+wai_load_textdomain();
+assert_true(
+	array( 'wechat-article-importer', false, 'wechat-article-importer/languages' ) === $GLOBALS['wai_test_textdomain_args'],
+	'textdomain loader points at the plugin languages directory'
+);
+
+wai_add_admin_menu();
+assert_true( 'WeChat Article Importer' === $GLOBALS['wai_test_menu_page_args'][0], 'admin page title remains descriptive' );
+assert_true( 'Import WeChat' === $GLOBALS['wai_test_menu_page_args'][1], 'admin menu label is Import WeChat' );
+
+wai_enqueue_admin_scripts( 'toplevel_page_wechat-article-importer' );
+assert_true( isset( $GLOBALS['wai_test_localized_script_args'][2]['i18n'] ), 'admin script receives localized strings' );
+assert_true( 'Start Import' === $GLOBALS['wai_test_localized_script_args'][2]['i18n']['start_import'], 'localized defaults are English source strings' );
+assert_true( false !== strpos( $GLOBALS['wai_test_localized_script_args'][2]['i18n']['step_2_message'], '%1$s' ), 'localized progress message keeps status placeholder' );
+assert_true( false !== strpos( $GLOBALS['wai_test_localized_script_args'][2]['i18n']['imported_as_draft_template'], '%s' ), 'localized success message keeps link placeholder' );
 
 $source_image = 'https://mmbiz.qpic.cn/sz_mmbiz_png/example/640?wx_fmt=png&from=appmsg';
 $bg_image     = 'https://mmbiz.qpic.cn/sz_mmbiz_jpg/example/bg?wx_fmt=jpeg';
@@ -156,6 +190,9 @@ $article = wai_parse_wechat_article_html( $html );
 assert_true( '今日谷雨，宜开封' === $article['title'], 'parser extracts title' );
 assert_true( '2024-04-20 15:01:15' === $article['post_date_gmt'], 'parser extracts GMT publish date' );
 assert_true( ! empty( $article['content_html'] ), 'parser extracts content HTML' );
+
+$untitled_article = wai_parse_wechat_article_html( '<html><body><div id="js_content"><p>body</p></div></body></html>' );
+assert_true( 'Untitled - 2026-04-26 00:00:00' === $untitled_article['title'], 'parser fallback title uses a localized date placeholder' );
 
 $nested_html = '<html><body><h1 id="activity-name">Nested</h1><div class="rich_media_content" id="js_content"><div><p>inner</p></div><p>after nested div</p></div></body></html>';
 $nested_article = wai_parse_wechat_article_html( $nested_html );
