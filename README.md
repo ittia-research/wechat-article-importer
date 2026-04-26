@@ -33,12 +33,32 @@ Imported posts get a scoped Classic Editor body class as an integration hook, bu
 Run checks after edits:
 
 ```bash
+npm run check
+```
+
+This wraps the project validation commands:
+
+```bash
 php -l wechat-article-importer.php
 node --check js/importer.js
-msgfmt --check --check-format languages/wechat-article-importer-en_US.po
-msgfmt --check --check-format languages/wechat-article-importer-zh_CN.po
+msgfmt --check --check-format --output-file=/dev/null languages/wechat-article-importer-en_US.po
+msgfmt --check --check-format --output-file=/dev/null languages/wechat-article-importer-zh_CN.po
 php tests/run.php
 ```
+
+## Packaging
+
+Build a WordPress-ready ZIP at `./wechat-article-importer.zip`:
+
+```bash
+npm run build
+```
+
+The package build runs the verification suite first, checks version metadata
+for drift, derives distributable files from tracked source files, excludes
+development-only paths such as `tests/` and `scripts/`, and validates the ZIP
+contents. Add new runtime files to git before packaging so they are included in
+the release artifact.
 
 ## Translation workflow
 

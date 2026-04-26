@@ -1,0 +1,12 @@
+{
+  "name": "wechat-article-importer",
+  "version": "0.2.2",
+  "private": true,
+  "description": "Build tooling for the WeChat Article Importer WordPress plugin.",
+  "license": "GPL-2.0-only",
+  "scripts": {
+    "check": "bash scripts/check.sh",
+    "build": "npm run check && bash scripts/build-wordpress-package.sh",
+    "package": "npm run build"
+  }
+}

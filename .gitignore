@@ -18,4 +18,6 @@ vendor/
 coverage/
 build/
 dist/
+
+# Package artifacts
 *.zip
