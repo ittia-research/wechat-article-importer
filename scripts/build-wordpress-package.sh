@@ -22,44 +22,7 @@ require_command() {
 }
 
 assert_version_consistency() {
-    node - "${root_dir}" <<'NODE'
-const fs = require('fs');
-const path = require('path');
-
-const rootDir = process.argv[2];
-const read = (relativePath) => fs.readFileSync(path.join(rootDir, relativePath), 'utf8');
-const packageJson = JSON.parse(read('package.json'));
-const pluginPhp = read('wechat-article-importer.php');
-const readmeTxt = read('readme.txt');
-const readmeMd = read('README.md');
-
-const versions = {
-    'package.json version': packageJson.version,
-    'plugin header Version': pluginPhp.match(/^\s*\* Version:\s*(.+)$/m)?.[1]?.trim(),
-    'WAI_VERSION': pluginPhp.match(/const\s+WAI_VERSION\s*=\s*'([^']+)'\s*;/)?.[1],
-    'readme.txt Stable tag': readmeTxt.match(/^Stable tag:\s*(.+)$/m)?.[1]?.trim(),
-    'README translation package version': readmeMd.match(/--package-version='([^']+)'/)?.[1],
-};
-
-const missing = Object.entries(versions).filter(([, version]) => !version);
-if (missing.length > 0) {
-    console.error('Unable to read version metadata:');
-    for (const [name] of missing) {
-        console.error(`- ${name}`);
-    }
-    process.exit(1);
-}
-
-const expected = versions['plugin header Version'];
-const mismatches = Object.entries(versions).filter(([, version]) => version !== expected);
-if (mismatches.length > 0) {
-    console.error(`Version metadata must match plugin header version ${expected}:`);
-    for (const [name, version] of mismatches) {
-        console.error(`- ${name}: ${version}`);
-    }
-    process.exit(1);
-}
-NODE
+    node "${root_dir}/scripts/version.js" check
 }
 
 is_dev_only_path() {
@@ -67,6 +30,7 @@ is_dev_only_path() {
     case "${relative_path}" in
         .*) return 0 ;;
         */.*) return 0 ;;
+        VERSION) return 0 ;;
         package.json|package-lock.json|npm-shrinkwrap.json) return 0 ;;
         scripts/*|tests/*) return 0 ;;
         node_modules/*|vendor/*|coverage/*|build/*|dist/*) return 0 ;;

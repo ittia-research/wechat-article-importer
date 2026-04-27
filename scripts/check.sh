@@ -22,6 +22,8 @@ cd "${root_dir}"
 bash -n scripts/check.sh
 bash -n scripts/build-wordpress-package.sh
 node -e "JSON.parse(require('fs').readFileSync('package.json', 'utf8'))"
+node --check scripts/version.js
+node scripts/version.js check
 php -l wechat-article-importer.php
 node --check js/importer.js
 msgfmt --check --check-format --output-file=/dev/null languages/wechat-article-importer-en_US.po

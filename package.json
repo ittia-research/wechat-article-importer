@@ -5,6 +5,10 @@
   "description": "Build tooling for the WeChat Article Importer WordPress plugin.",
   "license": "GPL-2.0-only",
   "scripts": {
+    "version:current": "node scripts/version.js current",
+    "version:check": "node scripts/version.js check",
+    "version:set": "node scripts/version.js set",
+    "release:notes": "node scripts/version.js release-notes",
     "check": "bash scripts/check.sh",
     "build": "npm run check && bash scripts/build-wordpress-package.sh",
     "package": "npm run build"

@@ -5,10 +5,13 @@ WordPress plugin fork for importing WeChat Official Account articles into WordPr
 ## Structure
 
 ```text
+VERSION                      Canonical release version
 wechat-article-importer.php  WordPress plugin entry point and importer logic
 js/importer.js               Admin AJAX importer UI flow
 readme.txt                   WordPress.org-style plugin readme
 languages/                   Translation template and English/Chinese catalogs
+scripts/version.js           Version sync, validation, and release notes helper
+.github/workflows/           CI and direct GitHub Release automation
 ```
 
 ## Development notes
@@ -61,6 +64,25 @@ msgfmt --check --check-format --output-file=/dev/null languages/wechat-article-i
 php tests/run.php
 ```
 
+## Versioning
+
+`VERSION` is the canonical version source. WordPress and tooling still require
+mirrored copies in `package.json`, the plugin header, `WAI_VERSION`,
+`readme.txt`'s `Stable tag`, translation catalog `Project-Id-Version` headers,
+and the translation command examples in this README, so keep them synchronized
+with:
+
+```bash
+npm run version:check
+npm run version:set -- 0.2.3 --changelog-file /tmp/release-changelog.txt
+npm run release:notes -- 0.2.3
+```
+
+`version:set` accepts an optional leading `v` (for example `v0.2.3`). When the
+target version does not already have a `readme.txt` changelog section, pass a
+non-empty changelog file; each non-empty line is normalized to a WordPress
+readme bullet.
+
 ## Packaging
 
 Build a WordPress-ready ZIP at `./wechat-article-importer.zip`:
@@ -74,6 +96,22 @@ for drift, derives distributable files from tracked source files, excludes
 development-only paths such as `tests/` and `scripts/`, and validates the ZIP
 contents. Add new runtime files to git before packaging so they are included in
 the release artifact.
+
+## Release workflow
+
+Releases do not require a release PR. Use either path:
+
+1. Update version metadata locally with `npm run version:set -- X.Y.Z
+   --changelog-file /tmp/release-changelog.txt`, review the diff, and push to
+   `main`.
+2. Or run the **Release** workflow manually with an optional target version and
+   changelog. When a version is provided, the workflow commits the synchronized
+   version metadata directly to `main`.
+
+The **Release** workflow verifies all mirrored metadata, runs the full
+check/build suite, extracts release notes from `readme.txt`, force-refreshes the
+`vX.Y.Z` tag at the current `main` commit, deletes any existing GitHub Release
+for that tag, and recreates it with a fresh `wechat-article-importer.zip`.
 
 ## Translation workflow
 

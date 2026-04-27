@@ -1,0 +1,118 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - VERSION
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Optional release version, for example 0.2.3 or v0.2.3. Leave empty to release VERSION.'
+        required: false
+        type: string
+      changelog:
+        description: 'Optional release notes for readme.txt when setting a new version; one item per line, bullets optional.'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and overwrite GitHub release
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && (github.event_name != 'push' || github.actor != 'github-actions[bot]')
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install system validation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gettext zip unzip
+
+      - name: Apply manual version input
+        env:
+          RELEASE_VERSION_INPUT: ${{ github.event.inputs.version }}
+          RELEASE_CHANGELOG_INPUT: ${{ github.event.inputs.changelog }}
+        run: |
+          if [ -z "$RELEASE_VERSION_INPUT" ]; then
+            echo "No manual version input; using VERSION from the checked-out commit."
+            exit 0
+          fi
+
+          if [ -n "$RELEASE_CHANGELOG_INPUT" ]; then
+            printf '%s\n' "$RELEASE_CHANGELOG_INPUT" > /tmp/release-changelog.txt
+            npm run version:set -- "$RELEASE_VERSION_INPUT" --changelog-file /tmp/release-changelog.txt
+          else
+            npm run version:set -- "$RELEASE_VERSION_INPUT"
+          fi
+
+          if git diff --quiet; then
+            echo "Version metadata already matched the requested release."
+            exit 0
+          fi
+
+          version="$(npm run --silent version:current)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION package.json README.md readme.txt wechat-article-importer.php languages
+          git commit -m "Release v${version}" \
+            -m "Synchronize canonical and mirrored plugin version metadata before publishing."
+          git push origin "HEAD:${GITHUB_REF_NAME}"
+
+      - name: Validate release metadata
+        id: release_state
+        run: |
+          version="$(npm run --silent version:current)"
+          tag="v${version}"
+          npm run version:check -- --tag "$tag"
+          git fetch --tags --force origin
+          {
+            echo "version=${version}"
+            echo "tag=${tag}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build release package
+        run: npm run build
+
+      - name: Prepare release notes
+        run: npm run --silent release:notes -- "${{ steps.release_state.outputs.version }}" > release-notes.md
+
+      - name: Overwrite GitHub release and tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ steps.release_state.outputs.tag }}"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release delete "$tag" --yes --cleanup-tag
+          else
+            git push origin ":refs/tags/${tag}" 2>/dev/null || true
+          fi
+
+          git tag -d "$tag" >/dev/null 2>&1 || true
+          git tag -a "$tag" -m "Release ${tag}"
+          git push --force origin "refs/tags/${tag}"
+
+          gh release create "$tag" \
+            "wechat-article-importer.zip#wechat-article-importer.zip" \
+            --title "WeChat Article Importer ${tag}" \
+            --notes-file release-notes.md \
+            --latest \
+            --verify-tag
