@@ -114,7 +114,7 @@ jobs:
 
           gh release create "$tag" \
             "wechat-article-importer.zip#wechat-article-importer.zip" \
-            --title "WeChat Article Importer ${tag}" \
+            --title "${tag}" \
             --notes-file release-notes.md \
             --latest \
             --verify-tag
