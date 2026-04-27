@@ -18,6 +18,21 @@ languages/                   Translation template and English/Chinese catalogs
 - Admin menu slug: `wechat-article-importer`
 - AJAX actions: `wai_start_import`, `wai_process_image`, `wai_finish_import`
 
+## Created metadata
+
+The plugin writes these custom WordPress post-meta keys:
+
+| Object | Meta key | Value | Purpose |
+| --- | --- | --- | --- |
+| Imported post | `_wai_import_source_url` | Sanitized source WeChat article URL, when available | Preserves where the imported draft came from. |
+| Imported post | `_wai_import_content_hash` | MD5 hash of the cleaned HTML stored in `post_content` | Marks the post as a WeChat import and lets the Classic Editor integration apply only to imported posts. |
+| Attachment | `_wai_attachment_content_md5` | Lowercase MD5 hash of the attachment file bytes | Enables site-wide media dedupe across imports and regenerated attachments. |
+
+When an imported image becomes the featured image, WordPress also stores the
+standard `_thumbnail_id` relationship for the imported post. If thumbnail
+generation is enabled, WordPress may update its normal attachment metadata; the
+custom plugin-specific attachment hash remains `_wai_attachment_content_md5`.
+
 ## Import cleanup strategy
 
 The importer stores a WordPress-stable version of the WeChat article HTML rather than the raw source. It keeps layout-critical inline styles, localizes image/background URLs, converts invalid block-wrapping image links to editor-stable image links, rewrites intentional blank spacers into retained inline markers, replaces WeChat placeholder SVGs with hidden standard spans, and removes WeChat-only/editor-only attributes and custom tags.
