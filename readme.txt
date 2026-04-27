@@ -43,6 +43,10 @@ No. Work is only triggered from the WordPress admin importer page.
 
 New and regenerated attachments get `_wai_attachment_content_md5` automatically. Existing media need a one-time WP-CLI backfill that calls `wai_update_attachment_content_md5_meta()` per attachment, or `wp media regenerate --yes` if thumbnail regeneration is acceptable.
 
+= How can I distinguish importer-uploaded media from manual uploads? =
+
+Media files newly uploaded by this importer get `_wai_imported_attachment=1` plus `_wai_source_image_url` with the original WeChat image URL. The `_wai_attachment_content_md5` key is source-agnostic dedupe metadata and can also exist on manual uploads.
+
 == Changelog ==
 
 = 0.2.2 =

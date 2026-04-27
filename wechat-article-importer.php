@@ -21,6 +21,8 @@ const WAI_VERSION = '0.2.2';
 const WAI_SOURCE_URL_META = '_wai_import_source_url';
 const WAI_CONTENT_HASH_META = '_wai_import_content_hash';
 const WAI_ATTACHMENT_CONTENT_MD5_META = '_wai_attachment_content_md5';
+const WAI_IMPORTED_ATTACHMENT_META = '_wai_imported_attachment';
+const WAI_SOURCE_IMAGE_URL_META = '_wai_source_image_url';
 const WAI_EDITOR_BODY_CLASS = 'wai-wechat-import-editor';
 const WAI_MAX_IMAGE_BYTES = 20971520;
 
@@ -1492,7 +1494,9 @@ function wai_detect_image_mime_type( $image_data ) {
 		$finfo = finfo_open( FILEINFO_MIME_TYPE );
 		if ( $finfo ) {
 			$mime_type = finfo_buffer( $finfo, $image_data );
-			finfo_close( $finfo );
+			if ( PHP_VERSION_ID < 80500 ) {
+				finfo_close( $finfo );
+			}
 			if ( is_string( $mime_type ) && '' !== $mime_type ) {
 				return strtolower( $mime_type );
 			}
@@ -1593,8 +1597,41 @@ function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = nul
 		return new WP_Error( 'image_too_large', __( 'The image file exceeds the allowed size.', 'wechat-article-importer' ) );
 	}
 
-	$mime_type = wai_detect_image_mime_type( $image_data );
-	$extension = wai_extension_for_allowed_image_mime( $mime_type );
+	$attachment_id = wai_create_imported_attachment_from_image_data( $image_url, $image_data, $post_id, $desc, $generate_thumbnails );
+	if ( is_wp_error( $attachment_id ) ) {
+		return $attachment_id;
+	}
+
+	$sideload_cache[ $source_url_md5 ] = $attachment_id;
+
+	return $attachment_id;
+}
+
+/**
+ * Creates a WordPress attachment from already downloaded importer image bytes.
+ *
+ * @param string      $image_url           Source WeChat image URL.
+ * @param string      $image_data          Raw image bytes.
+ * @param int         $post_id             Parent post ID.
+ * @param string|null $desc                Attachment title override.
+ * @param bool        $generate_thumbnails Whether to generate attachment metadata.
+ * @return int|WP_Error
+ */
+function wai_create_imported_attachment_from_image_data( $image_url, $image_data, $post_id, $desc = null, $generate_thumbnails = false ) {
+	$image_url = wai_normalize_url_attribute( $image_url );
+	if ( empty( $image_url ) ) {
+		return new WP_Error( 'no_url', __( 'Image URL cannot be empty.', 'wechat-article-importer' ) );
+	}
+	if ( ! wai_is_allowed_image_url( $image_url ) ) {
+		return new WP_Error( 'invalid_image_url', __( 'The image URL is not from an allowed WeChat image domain.', 'wechat-article-importer' ) );
+	}
+	if ( strlen( $image_data ) > WAI_MAX_IMAGE_BYTES ) {
+		return new WP_Error( 'image_too_large', __( 'The image file exceeds the allowed size.', 'wechat-article-importer' ) );
+	}
+
+	$source_url_md5 = md5( $image_url );
+	$mime_type      = wai_detect_image_mime_type( $image_data );
+	$extension      = wai_extension_for_allowed_image_mime( $mime_type );
 	if ( '' === $extension ) {
 		return new WP_Error( 'unsupported_image_type', __( 'The image format is unsupported or cannot be verified.', 'wechat-article-importer' ) );
 	}
@@ -1603,7 +1640,6 @@ function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = nul
 	$existing_attachment_id = wai_find_attachment_by_content_md5( $content_md5 );
 	if ( $existing_attachment_id ) {
 		wai_record_attachment_content_md5( $existing_attachment_id, $content_md5 );
-		$sideload_cache[ $source_url_md5 ] = $existing_attachment_id;
 		return $existing_attachment_id;
 	}
 
@@ -1641,14 +1677,13 @@ function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = nul
 	}
 
 	wai_record_attachment_content_md5( $attachment_id, $content_md5 );
+	wai_record_imported_attachment_meta( $attachment_id, $image_url );
 
 	if ( $generate_thumbnails ) {
 		require_once ABSPATH . 'wp-admin/includes/image.php';
 		$attachment_data = wp_generate_attachment_metadata( $attachment_id, $filepath );
 		wp_update_attachment_metadata( $attachment_id, $attachment_data );
 	}
-
-	$sideload_cache[ $source_url_md5 ] = $attachment_id;
 
 	return $attachment_id;
 }
@@ -1689,6 +1724,30 @@ function wai_record_attachment_content_md5( $attachment_id, $content_md5 ) {
 	}
 
 	update_post_meta( $attachment_id, WAI_ATTACHMENT_CONTENT_MD5_META, $content_md5 );
+	return true;
+}
+
+/**
+ * Records markers that identify attachments newly uploaded by this importer.
+ *
+ * The site-wide content MD5 metadata can exist on manual uploads too, so these
+ * importer-specific keys are only written after this plugin creates a new
+ * attachment. Reused existing attachments are intentionally not marked here.
+ *
+ * @param int    $attachment_id    Attachment ID.
+ * @param string $source_image_url Source WeChat image URL.
+ * @return bool
+ */
+function wai_record_imported_attachment_meta( $attachment_id, $source_image_url ) {
+	$attachment_id    = (int) $attachment_id;
+	$source_image_url = wai_normalize_url_attribute( $source_image_url );
+
+	if ( $attachment_id <= 0 || '' === $source_image_url || ! wai_is_allowed_image_url( $source_image_url ) || ! function_exists( 'update_post_meta' ) ) {
+		return false;
+	}
+
+	update_post_meta( $attachment_id, WAI_IMPORTED_ATTACHMENT_META, '1' );
+	update_post_meta( $attachment_id, WAI_SOURCE_IMAGE_URL_META, $source_image_url );
 	return true;
 }
 

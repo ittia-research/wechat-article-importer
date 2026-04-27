@@ -61,6 +61,53 @@ function get_posts( $args ) {
 function get_attached_file( $attachment_id ) {
 	return $GLOBALS['wai_test_attached_files'][ $attachment_id ] ?? '';
 }
+function wp_upload_dir() {
+	return array(
+		'path' => $GLOBALS['wai_test_upload_dir'] ?? sys_get_temp_dir(),
+	);
+}
+function wp_unique_filename( $dir, $filename ) {
+	$GLOBALS['wai_test_unique_filename_args'][] = func_get_args();
+	return $filename;
+}
+function wp_check_filetype( $filename, $mimes = null ) {
+	$extension = strtolower( pathinfo( $filename, PATHINFO_EXTENSION ) );
+	$types     = array(
+		'jpg'  => 'image/jpeg',
+		'jpeg' => 'image/jpeg',
+		'png'  => 'image/png',
+		'gif'  => 'image/gif',
+		'webp' => 'image/webp',
+	);
+	return array(
+		'ext'  => $extension,
+		'type' => $types[ $extension ] ?? '',
+	);
+}
+function wp_delete_file( $file ) {
+	$GLOBALS['wai_test_deleted_files'][] = $file;
+	if ( is_file( $file ) ) {
+		unlink( $file );
+	}
+}
+function wp_insert_attachment( $attachment, $filepath, $post_id = 0 ) {
+	$attachment_id = $GLOBALS['wai_test_next_attachment_id'] ?? 987;
+	$GLOBALS['wai_test_inserted_attachments'][ $attachment_id ] = array(
+		'attachment' => $attachment,
+		'filepath'   => $filepath,
+		'post_id'    => $post_id,
+	);
+	$GLOBALS['wai_test_attached_files'][ $attachment_id ] = $filepath;
+	return $attachment_id;
+}
+function wp_generate_attachment_metadata( $attachment_id, $filepath ) {
+	$GLOBALS['wai_test_generated_attachment_metadata'][] = func_get_args();
+	return array( 'file' => basename( $filepath ) );
+}
+function wp_update_attachment_metadata( $attachment_id, $metadata ) {
+	$GLOBALS['wai_test_updated_attachment_metadata'][] = func_get_args();
+	return true;
+}
 class WP_Error {
 	private $message;
 	public function __construct( $code = '', $message = '' ) { $this->message = $message; }
@@ -130,6 +177,8 @@ assert_true( 'image/svg+xml' === wai_detect_image_mime_type( '<svg xmlns="http:/
 assert_true( '' === wai_extension_for_allowed_image_mime( 'image/svg+xml' ), 'SVG is not an allowed upload type' );
 
 assert_true( WAI_ATTACHMENT_CONTENT_MD5_META === '_wai_attachment_content_md5', 'canonical attachment MD5 metadata key is source-agnostic' );
+assert_true( WAI_IMPORTED_ATTACHMENT_META === '_wai_imported_attachment', 'imported attachment marker meta key identifies importer-created media' );
+assert_true( WAI_SOURCE_IMAGE_URL_META === '_wai_source_image_url', 'source image URL meta key records importer-created media origin' );
 assert_true( ! defined( 'WAI_LEGACY_SOURCE_MD5_META' ), 'legacy fork source MD5 metadata constant is removed' );
 assert_true( ! defined( 'WAI_UPSTREAM_SOURCE_MD5_META' ), 'upstream source MD5 metadata constant is removed' );
 assert_true( ! defined( 'WAI_IMAGE_CONTENT_MD5_META' ), 'importer-only content MD5 metadata constant is removed' );
@@ -144,6 +193,50 @@ assert_true( wai_record_attachment_content_md5( 456, $site_wide_md5 ), 'canonica
 assert_true( '0123456789abcdef0123456789abcdef' === $GLOBALS['wai_test_post_meta'][456][ WAI_ATTACHMENT_CONTENT_MD5_META ], 'canonical content MD5 metadata is lowercased in post meta' );
 assert_true( ! isset( $GLOBALS['wai_test_post_meta'][456]['_wai_source_md5'] ), 'legacy fork source MD5 metadata is not written' );
 assert_true( ! isset( $GLOBALS['wai_test_post_meta'][456]['_iafw_source_md5'] ), 'upstream source MD5 metadata is not written' );
+
+$GLOBALS['wai_test_post_meta'] = array();
+$GLOBALS['wai_test_updated_post_meta'] = array();
+assert_true( wai_record_imported_attachment_meta( 654, $source_image ), 'importer-created attachment metadata is recorded for allowed WeChat image URLs' );
+assert_true( '1' === $GLOBALS['wai_test_post_meta'][654][ WAI_IMPORTED_ATTACHMENT_META ], 'importer-created attachment marker is stored' );
+assert_true( $source_image === $GLOBALS['wai_test_post_meta'][654][ WAI_SOURCE_IMAGE_URL_META ], 'source WeChat image URL is stored on importer-created attachments' );
+assert_true( 2 === count( $GLOBALS['wai_test_updated_post_meta'] ), 'importer-created attachment helper writes only the two importer-specific metadata keys' );
+assert_true( ! isset( $GLOBALS['wai_test_post_meta'][654][ WAI_ATTACHMENT_CONTENT_MD5_META ] ), 'importer-created marker helper does not write the source-agnostic MD5 metadata' );
+assert_true( ! wai_record_imported_attachment_meta( 655, 'https://example.test/manual-upload.jpg' ), 'importer-created attachment metadata rejects non-WeChat source URLs' );
+assert_true( ! isset( $GLOBALS['wai_test_post_meta'][655] ), 'rejected source URL does not mark manual uploads as importer-created media' );
+
+$png_image_data      = base64_decode( 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=' );
+$tmp_upload_dir      = sys_get_temp_dir() . '/wai-import-test-' . uniqid( '', true );
+$expected_image_md5  = md5( $png_image_data );
+$GLOBALS['wai_test_upload_dir'] = $tmp_upload_dir;
+mkdir( $tmp_upload_dir );
+
+$GLOBALS['wai_test_get_posts_results'] = array();
+$GLOBALS['wai_test_post_meta'] = array();
+$GLOBALS['wai_test_updated_post_meta'] = array();
+$GLOBALS['wai_test_inserted_attachments'] = array();
+$GLOBALS['wai_test_next_attachment_id'] = 987;
+$new_attachment_id = wai_create_imported_attachment_from_image_data( $source_image, $png_image_data, 0, null, false );
+assert_true( 987 === $new_attachment_id, 'new importer image bytes create a new attachment' );
+assert_true( $expected_image_md5 === $GLOBALS['wai_test_post_meta'][987][ WAI_ATTACHMENT_CONTENT_MD5_META ], 'new importer attachment receives canonical content MD5 metadata' );
+assert_true( '1' === $GLOBALS['wai_test_post_meta'][987][ WAI_IMPORTED_ATTACHMENT_META ], 'new importer attachment receives imported marker metadata' );
+assert_true( $source_image === $GLOBALS['wai_test_post_meta'][987][ WAI_SOURCE_IMAGE_URL_META ], 'new importer attachment receives source image URL metadata' );
+assert_true( 1 === count( $GLOBALS['wai_test_inserted_attachments'] ), 'new importer image bytes insert exactly one attachment' );
+assert_true( is_file( $GLOBALS['wai_test_inserted_attachments'][987]['filepath'] ), 'new importer image bytes are written into the upload directory' );
+
+$GLOBALS['wai_test_get_posts_results'] = array( 777 );
+$GLOBALS['wai_test_post_meta'] = array();
+$GLOBALS['wai_test_updated_post_meta'] = array();
+$GLOBALS['wai_test_inserted_attachments'] = array();
+$deduped_attachment_id = wai_create_imported_attachment_from_image_data( $source_image, $png_image_data, 0, null, false );
+assert_true( 777 === $deduped_attachment_id, 'deduped importer image bytes reuse an existing attachment' );
+assert_true( $expected_image_md5 === $GLOBALS['wai_test_post_meta'][777][ WAI_ATTACHMENT_CONTENT_MD5_META ], 'deduped existing attachment refreshes only canonical content MD5 metadata' );
+assert_true( ! isset( $GLOBALS['wai_test_post_meta'][777][ WAI_IMPORTED_ATTACHMENT_META ] ), 'deduped existing attachment is not marked as importer-created media' );
+assert_true( ! isset( $GLOBALS['wai_test_post_meta'][777][ WAI_SOURCE_IMAGE_URL_META ] ), 'deduped existing attachment does not receive source image URL metadata' );
+assert_true( 0 === count( $GLOBALS['wai_test_inserted_attachments'] ), 'deduped importer image bytes do not insert another attachment' );
+
+wp_delete_file( $GLOBALS['wai_test_attached_files'][987] );
+rmdir( $tmp_upload_dir );
+unset( $GLOBALS['wai_test_upload_dir'], $GLOBALS['wai_test_next_attachment_id'], $GLOBALS['wai_test_get_posts_results'] );
 
 $GLOBALS['wai_test_get_posts_results'] = array( 789 );
 $GLOBALS['wai_test_get_posts_args'] = array();
