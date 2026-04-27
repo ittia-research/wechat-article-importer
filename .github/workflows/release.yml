@@ -106,6 +106,8 @@ jobs:
             git push origin ":refs/tags/${tag}" 2>/dev/null || true
           fi
 
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -d "$tag" >/dev/null 2>&1 || true
           git tag -a "$tag" -m "Release ${tag}"
           git push --force origin "refs/tags/${tag}"
