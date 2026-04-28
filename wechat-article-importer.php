@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       WeChat Article Importer
  * Description:       Import WeChat Official Account articles into WordPress drafts, including content, featured images, and inline images.
- * Version:           0.2.2
+ * Version:           0.2.3
  * Author:            ITTIA
  * Author URI:        https://github.com/ittia-research
  * License:           GPLv2
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-const WAI_VERSION = '0.2.2';
+const WAI_VERSION = '0.2.3';
 const WAI_SOURCE_URL_META = '_wai_import_source_url';
 const WAI_CONTENT_HASH_META = '_wai_import_content_hash';
 const WAI_ATTACHMENT_CONTENT_MD5_META = '_wai_attachment_content_md5';
@@ -25,11 +25,40 @@ const WAI_IMPORTED_ATTACHMENT_META = '_wai_imported_attachment';
 const WAI_SOURCE_IMAGE_URL_META = '_wai_source_image_url';
 const WAI_EDITOR_BODY_CLASS = 'wai-wechat-import-editor';
 const WAI_MAX_IMAGE_BYTES = 20971520;
+const WAI_IMPORT_CAPABILITY = 'wai_import_wechat_articles';
+const WAI_CAPABILITY_VERSION = '1';
+const WAI_CAPABILITY_VERSION_OPTION = 'wai_capability_version';
 
+
+register_activation_hook( __FILE__, 'wai_activate' );
+function wai_activate() {
+	wai_grant_import_capability_to_default_roles();
+	update_option( WAI_CAPABILITY_VERSION_OPTION, WAI_CAPABILITY_VERSION );
+}
 
 add_action( 'plugins_loaded', 'wai_load_textdomain' );
 function wai_load_textdomain() {
 	load_plugin_textdomain( 'wechat-article-importer', false, dirname( plugin_basename( __FILE__ ) ) . '/languages' );
+}
+
+add_action( 'admin_init', 'wai_maybe_install_capabilities' );
+function wai_maybe_install_capabilities() {
+	if ( WAI_CAPABILITY_VERSION === get_option( WAI_CAPABILITY_VERSION_OPTION ) ) {
+		return;
+	}
+
+	wai_grant_import_capability_to_default_roles();
+	update_option( WAI_CAPABILITY_VERSION_OPTION, WAI_CAPABILITY_VERSION );
+}
+
+function wai_grant_import_capability_to_default_roles() {
+	foreach ( array( 'administrator', 'editor' ) as $role_name ) {
+		$role = get_role( $role_name );
+
+		if ( $role && ! $role->has_cap( WAI_IMPORT_CAPABILITY ) ) {
+			$role->add_cap( WAI_IMPORT_CAPABILITY );
+		}
+	}
 }
 
 add_action( 'admin_menu', 'wai_add_admin_menu' );
@@ -37,7 +66,7 @@ function wai_add_admin_menu() {
 	add_menu_page(
 		__( 'WeChat Article Importer', 'wechat-article-importer' ),
 		__( 'Import WeChat', 'wechat-article-importer' ),
-		'manage_options',
+		WAI_IMPORT_CAPABILITY,
 		'wechat-article-importer',
 		'wai_importer_page_html'
 	);
@@ -361,7 +390,7 @@ function wai_importer_page_html() {
 add_action( 'wp_ajax_wai_start_import', 'wai_handle_ajax_start_import' );
 function wai_handle_ajax_start_import() {
 	check_ajax_referer( 'wai_ajax_nonce' );
-	if ( ! current_user_can( 'manage_options' ) ) {
+	if ( ! current_user_can( WAI_IMPORT_CAPABILITY ) ) {
 		wp_send_json_error( array( 'error' => __( 'Insufficient permissions.', 'wechat-article-importer' ) ) );
 	}
 	$url = isset( $_POST['wechat_url'] ) ? esc_url_raw( wp_unslash( $_POST['wechat_url'] ) ) : '';
@@ -411,7 +440,7 @@ function wai_handle_ajax_start_import() {
 add_action( 'wp_ajax_wai_process_image', 'wai_handle_ajax_process_image' );
 function wai_handle_ajax_process_image() {
 	check_ajax_referer( 'wai_ajax_nonce' );
-	if ( ! current_user_can( 'manage_options' ) ) {
+	if ( ! current_user_can( WAI_IMPORT_CAPABILITY ) ) {
 		wp_send_json_error( array( 'error' => __( 'Insufficient permissions.', 'wechat-article-importer' ) ) );
 	}
 	$task_id   = isset( $_POST['task_id'] ) ? sanitize_key( $_POST['task_id'] ) : '';
@@ -464,7 +493,7 @@ function wai_handle_ajax_process_image() {
 add_action( 'wp_ajax_wai_finish_import', 'wai_handle_ajax_finish_import' );
 function wai_handle_ajax_finish_import() {
 	check_ajax_referer( 'wai_ajax_nonce' );
-	if ( ! current_user_can( 'manage_options' ) ) {
+	if ( ! current_user_can( WAI_IMPORT_CAPABILITY ) ) {
 		wp_send_json_error( array( 'error' => __( 'Insufficient permissions.', 'wechat-article-importer' ) ) );
 	}
 	$task_id = isset( $_POST['task_id'] ) ? sanitize_key( $_POST['task_id'] ) : '';

@@ -20,6 +20,7 @@ scripts/version.js           Version sync, validation, and release notes helper
 - PHP/JS prefix: `wai`
 - Admin menu slug: `wechat-article-importer`
 - AJAX actions: `wai_start_import`, `wai_process_image`, `wai_finish_import`
+- Admin access capability: `wai_import_wechat_articles`, granted automatically to Administrators and Editors on activation and versioned capability updates.
 
 ## Created metadata
 
@@ -126,7 +127,7 @@ binaries:
 xgettext --from-code=UTF-8 --language=PHP \
   --keyword=__ --keyword=_e --keyword=esc_html_e --keyword=esc_attr_e \
   --add-comments=translators: \
-  --package-name='WeChat Article Importer' --package-version='0.2.2' \
+  --package-name='WeChat Article Importer' --package-version='0.2.3' \
   --msgid-bugs-address='https://github.com/ittia-research' \
   --copyright-holder='ITTIA' \
   --output=languages/wechat-article-importer.pot \

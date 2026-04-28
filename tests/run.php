@@ -8,6 +8,9 @@ function add_action( $hook_name, $callback = '', $priority = 10, $accepted_args 
 function add_filter( $hook_name, $callback = '', $priority = 10, $accepted_args = 1 ) {
 	$GLOBALS['wai_test_filters'][] = func_get_args();
 }
+function register_activation_hook( $file, $callback ) {
+	$GLOBALS['wai_test_activation_hooks'][] = func_get_args();
+}
 function apply_filters( $tag, $value ) { return $value; }
 function add_menu_page() {
 	$GLOBALS['wai_test_menu_page_args'] = func_get_args();
@@ -28,6 +31,35 @@ function esc_attr_e( $text ) { echo $text; }
 function esc_url( $url ) { return $url; }
 function submit_button() {}
 function __( $text ) { return $text; }
+function get_option( $option, $default = false ) {
+	return $GLOBALS['wai_test_options'][ $option ] ?? $default;
+}
+function update_option( $option, $value ) {
+	$GLOBALS['wai_test_options'][ $option ] = $value;
+	$GLOBALS['wai_test_updated_options'][] = func_get_args();
+	return true;
+}
+class WAI_Test_Role {
+	public $name;
+	public $capabilities = array();
+
+	public function __construct( $name, $capabilities = array() ) {
+		$this->name         = $name;
+		$this->capabilities = array_fill_keys( $capabilities, true );
+	}
+
+	public function has_cap( $capability ) {
+		return ! empty( $this->capabilities[ $capability ] );
+	}
+
+	public function add_cap( $capability ) {
+		$this->capabilities[ $capability ] = true;
+		$GLOBALS['wai_test_added_caps'][]  = array( $this->name, $capability );
+	}
+}
+function get_role( $role_name ) {
+	return $GLOBALS['wai_test_roles'][ $role_name ] ?? null;
+}
 function current_time() { return '2026-04-26 00:00:00'; }
 function wp_strip_all_tags( $text ) { return trim( strip_tags( $text ) ); }
 function esc_url_raw( $url, $protocols = null ) { return trim( html_entity_decode( (string) $url, ENT_QUOTES ) ); }
@@ -143,8 +175,27 @@ foreach ( $GLOBALS['wai_test_filters'] as $filter_args ) {
 	$registered_filters[] = $filter_args[0] . ':' . $filter_args[1];
 }
 assert_true( in_array( 'plugins_loaded:wai_load_textdomain', $registered_callbacks, true ), 'textdomain loader is registered on plugins_loaded' );
+assert_true( in_array( 'admin_init:wai_maybe_install_capabilities', $registered_callbacks, true ), 'capability installer is registered on admin_init for upgrades' );
 assert_true( in_array( 'add_attachment:wai_update_attachment_content_md5_meta', $registered_callbacks, true ), 'attachment creation records canonical content MD5 metadata' );
 assert_true( in_array( 'wp_update_attachment_metadata:wai_update_attachment_content_md5_meta_on_metadata_update', $registered_filters, true ), 'attachment metadata updates refresh canonical content MD5 metadata' );
+assert_true( 'wai_activate' === $GLOBALS['wai_test_activation_hooks'][0][1], 'activation hook installs importer capability' );
+
+$GLOBALS['wai_test_roles'] = array(
+	'administrator' => new WAI_Test_Role( 'administrator' ),
+	'editor'        => new WAI_Test_Role( 'editor' ),
+	'author'        => new WAI_Test_Role( 'author' ),
+);
+wai_activate();
+assert_true( $GLOBALS['wai_test_roles']['administrator']->has_cap( WAI_IMPORT_CAPABILITY ), 'activation grants importer capability to administrators' );
+assert_true( $GLOBALS['wai_test_roles']['editor']->has_cap( WAI_IMPORT_CAPABILITY ), 'activation grants importer capability to editors' );
+assert_true( ! $GLOBALS['wai_test_roles']['author']->has_cap( WAI_IMPORT_CAPABILITY ), 'activation does not grant importer capability to authors' );
+assert_true( WAI_CAPABILITY_VERSION === $GLOBALS['wai_test_options'][ WAI_CAPABILITY_VERSION_OPTION ], 'activation records capability schema version' );
+
+$GLOBALS['wai_test_options'][ WAI_CAPABILITY_VERSION_OPTION ] = '0';
+$GLOBALS['wai_test_roles']['editor']->capabilities = array();
+wai_maybe_install_capabilities();
+assert_true( $GLOBALS['wai_test_roles']['editor']->has_cap( WAI_IMPORT_CAPABILITY ), 'upgrade installer restores editor importer capability' );
+assert_true( WAI_CAPABILITY_VERSION === $GLOBALS['wai_test_options'][ WAI_CAPABILITY_VERSION_OPTION ], 'upgrade installer records capability schema version' );
 
 wai_load_textdomain();
 assert_true(
@@ -155,6 +206,7 @@ assert_true(
 wai_add_admin_menu();
 assert_true( 'WeChat Article Importer' === $GLOBALS['wai_test_menu_page_args'][0], 'admin page title remains descriptive' );
 assert_true( 'Import WeChat' === $GLOBALS['wai_test_menu_page_args'][1], 'admin menu label is Import WeChat' );
+assert_true( WAI_IMPORT_CAPABILITY === $GLOBALS['wai_test_menu_page_args'][2], 'admin menu uses plugin-specific importer capability' );
 
 wai_enqueue_admin_scripts( 'toplevel_page_wechat-article-importer' );
 assert_true( isset( $GLOBALS['wai_test_localized_script_args'][2]['i18n'] ), 'admin script receives localized strings' );

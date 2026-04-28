@@ -3,7 +3,7 @@ Contributors: ittia, xiaozhai001
 Tags: wechat, wordpress, import, 微信公众号文章, 采集, 导入
 Requires at least: 5.0
 Tested up to: 6.8
-Stable tag: 0.2.2
+Stable tag: 0.2.3
 Requires PHP: 7.4
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -29,6 +29,8 @@ The importer runs as a multi-step admin AJAX flow so large articles can be proce
 2. Activate "WeChat Article Importer" from the WordPress Plugins screen.
 3. Open the "Import WeChat" admin menu item and paste a `https://mp.weixin.qq.com/...` article URL.
 
+On activation, the plugin grants its dedicated `wai_import_wechat_articles` capability to Administrators and Editors, so those roles can use the importer without receiving the broad `manage_options` site-settings capability.
+
 == Frequently Asked Questions ==
 
 = Does this work for all WeChat articles? =
@@ -39,6 +41,10 @@ It should work for many WeChat Official Account articles, but WeChat page struct
 
 No. Work is only triggered from the WordPress admin importer page.
 
+= Can Editor accounts use the importer? =
+
+Yes. The plugin grants Administrators and Editors the dedicated `wai_import_wechat_articles` capability automatically on activation and after plugin updates. If a custom role should use the importer, grant that custom role `wai_import_wechat_articles`.
+
 = How do I populate MD5 metadata for existing media? =
 
 New and regenerated attachments get `_wai_attachment_content_md5` automatically. Existing media need a one-time WP-CLI backfill that calls `wai_update_attachment_content_md5_meta()` per attachment, or `wp media regenerate --yes` if thumbnail regeneration is acceptable.
@@ -48,6 +54,9 @@ New and regenerated attachments get `_wai_attachment_content_md5` automatically.
 Media files newly uploaded by this importer get `_wai_imported_attachment=1` plus `_wai_source_image_url` with the original WeChat image URL. The `_wai_attachment_content_md5` key is source-agnostic dedupe metadata and can also exist on manual uploads.
 
 == Changelog ==
+
+= 0.2.3 =
+* Added a plugin-specific import capability that is granted to administrators and editors automatically, so editor accounts can see and run the importer without receiving broad site settings permissions.
 
 = 0.2.2 =
 * Changed media de-duplication to use canonical site-wide attachment content MD5 metadata.

@@ -5,7 +5,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: WeChat Article Importer 0.2.2\n"
+"Project-Id-Version: WeChat Article Importer 0.2.3\n"
 "Report-Msgid-Bugs-To: https://github.com/ittia-research\n"
 "POT-Creation-Date: 2026-04-26 20:36+0800\n"
 "PO-Revision-Date: 2026-04-26 19:17+0800\n"

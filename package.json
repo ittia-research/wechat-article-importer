@@ -1,6 +1,6 @@
 {
   "name": "wechat-article-importer",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "private": true,
   "description": "Build tooling for the WeChat Article Importer WordPress plugin.",
   "license": "GPL-2.0-only",
