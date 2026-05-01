@@ -758,7 +758,10 @@ function wai_prepare_import_content( $content_html, $processed_images = array() 
 	wai_remove_wechat_only_elements( $doc, $xpath );
 	wai_replace_placeholder_svgs( $doc );
 	wai_clean_dom_tree( $doc );
+	wai_simplify_inline_element_styles( $doc );
+	wai_unwrap_non_visual_empty_inline_wrappers( $doc );
 	wai_unwrap_redundant_spans( $doc );
+	wai_merge_adjacent_equivalent_inline_elements( $doc );
 	wai_normalize_blank_blocks( $doc );
 
 	$content = wai_get_body_inner_html( $doc );
@@ -1146,21 +1149,13 @@ function wai_clean_element_attributes( DOMElement $element ) {
  */
 function wai_clean_style_attribute( $style ) {
 	$declarations = array();
-	foreach ( explode( ';', (string) $style ) as $declaration ) {
-		$declaration = trim( preg_replace( '/\s+/', ' ', $declaration ) );
-		if ( '' === $declaration || false === strpos( $declaration, ':' ) ) {
-			continue;
-		}
-		list( $property, $value ) = array_map( 'trim', explode( ':', $declaration, 2 ) );
-		if ( '' === $property || '' === $value ) {
-			continue;
-		}
-		$property = strtolower( $property );
+	foreach ( wai_parse_style_declarations( $style ) as $declaration ) {
+		$property = $declaration['property'];
 		if ( ! wai_is_allowed_style_property( $property ) ) {
 			continue;
 		}
 
-		$value = wai_clean_style_value( $value );
+		$value = wai_clean_style_value( $declaration['value'] );
 		if ( '' === $value ) {
 			continue;
 		}
@@ -1387,7 +1382,7 @@ function wai_is_visually_empty_element( DOMElement $element ) {
 	if ( '' !== $text ) {
 		return false;
 	}
-	foreach ( array( 'img', 'a', 'strong', 'em', 'ul', 'ol', 'li' ) as $tag_name ) {
+	foreach ( array( 'img', 'a', 'ul', 'ol', 'li' ) as $tag_name ) {
 		if ( $element->getElementsByTagName( $tag_name )->length > 0 ) {
 			return false;
 		}
@@ -1402,6 +1397,13 @@ function wai_is_visually_empty_element( DOMElement $element ) {
 			continue;
 		}
 		if ( 'span' === $child_tag && wai_is_blank_block_marker_span( $child ) ) {
+			continue;
+		}
+		if (
+			'p' === strtolower( $element->tagName )
+			&& wai_is_inline_formatting_tag( $child_tag )
+			&& wai_inline_wrapper_has_no_visible_content( $child )
+		) {
 			continue;
 		}
 		if ( 'span' === $child_tag && '' === trim( str_replace( html_entity_decode( '&nbsp;', ENT_QUOTES, 'UTF-8' ), '', $child->textContent ) ) && ! $child->hasAttributes() ) {
@@ -1444,6 +1446,46 @@ function wai_is_blank_block_marker_span( DOMElement $span ) {
 }
 
 /**
+ * @param DOMElement $element Element.
+ * @return bool
+ */
+function wai_inline_wrapper_has_no_visible_content( DOMElement $element ) {
+	$tag = strtolower( $element->tagName );
+	if ( ! wai_is_inline_formatting_tag( $tag ) ) {
+		return false;
+	}
+
+	$text = trim(
+		str_replace(
+			array( html_entity_decode( '&nbsp;', ENT_QUOTES, 'UTF-8' ), html_entity_decode( '&#8203;', ENT_QUOTES, 'UTF-8' ) ),
+			'',
+			$element->textContent
+		)
+	);
+	if ( '' !== $text ) {
+		return false;
+	}
+
+	foreach ( $element->childNodes as $child ) {
+		if ( XML_TEXT_NODE === $child->nodeType ) {
+			continue;
+		}
+		if ( XML_ELEMENT_NODE !== $child->nodeType ) {
+			return false;
+		}
+		$child_tag = strtolower( $child->nodeName );
+		if ( 'br' === $child_tag ) {
+			continue;
+		}
+		if ( ! wai_is_inline_formatting_tag( $child_tag ) || ! wai_inline_wrapper_has_no_visible_content( $child ) ) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+/**
  * @param DOMDocument $doc Document.
  * @return void
  */
@@ -1460,6 +1502,278 @@ function wai_unwrap_redundant_spans( DOMDocument $doc ) {
 			$changed = true;
 		}
 	}
+}
+
+/**
+ * Removes declarations that cannot change a default inline text wrapper.
+ *
+ * This is intentionally property-semantics based rather than source-pattern based: after
+ * sanitization, presentational inline nodes frequently retain CSS such as box-sizing even
+ * when that declaration has no local box-size dependency. Dropping those no-op fragments
+ * lets the existing span unwrapping and equivalent-inline merging produce cleaner output
+ * without targeting individual articles or text strings.
+ *
+ * @param DOMDocument $doc Document.
+ * @return void
+ */
+function wai_simplify_inline_element_styles( DOMDocument $doc ) {
+	foreach ( array( 'a', 'em', 'span', 'strong' ) as $tag_name ) {
+		$nodes = iterator_to_array( $doc->getElementsByTagName( $tag_name ) );
+		foreach ( $nodes as $node ) {
+			if ( ! $node->hasAttribute( 'style' ) ) {
+				continue;
+			}
+			$clean_style = wai_remove_ineffective_inline_style_declarations( $node->getAttribute( 'style' ) );
+			if ( '' === $clean_style ) {
+				$node->removeAttribute( 'style' );
+			} else {
+				$node->setAttribute( 'style', $clean_style );
+			}
+		}
+	}
+}
+
+/**
+ * @param string $style Cleaned inline CSS.
+ * @return string
+ */
+function wai_remove_ineffective_inline_style_declarations( $style ) {
+	$declarations = wai_parse_style_declarations( $style );
+	if ( empty( $declarations ) ) {
+		return '';
+	}
+
+	$has_box_size_dependency = false;
+	foreach ( $declarations as $declaration ) {
+		if ( wai_is_box_sizing_dependent_style_property( $declaration['property'] ) ) {
+			$has_box_size_dependency = true;
+			break;
+		}
+	}
+
+	$kept = array();
+	foreach ( $declarations as $declaration ) {
+		if ( 'box-sizing' === $declaration['property'] && ! $has_box_size_dependency ) {
+			continue;
+		}
+		$kept[] = $declaration['property'] . ':' . $declaration['value'];
+	}
+
+	return implode( ';', $kept );
+}
+
+/**
+ * @param string $style Inline CSS.
+ * @return array<int,array{property:string,value:string}>
+ */
+function wai_parse_style_declarations( $style ) {
+	$declarations = array();
+	foreach ( explode( ';', (string) $style ) as $declaration ) {
+		$declaration = trim( preg_replace( '/\s+/', ' ', $declaration ) );
+		if ( '' === $declaration || false === strpos( $declaration, ':' ) ) {
+			continue;
+		}
+		list( $property, $value ) = array_map( 'trim', explode( ':', $declaration, 2 ) );
+		if ( '' === $property || '' === $value ) {
+			continue;
+		}
+		$declarations[] = array(
+			'property' => strtolower( $property ),
+			'value'    => $value,
+		);
+	}
+	return $declarations;
+}
+
+/**
+ * @param string $property CSS property.
+ * @return bool
+ */
+function wai_is_box_sizing_dependent_style_property( $property ) {
+	return in_array(
+		$property,
+		array(
+			'border',
+			'border-bottom',
+			'border-bottom-width',
+			'border-left',
+			'border-left-width',
+			'border-right',
+			'border-right-width',
+			'border-top',
+			'border-top-width',
+			'border-width',
+			'height',
+			'max-height',
+			'max-width',
+			'min-height',
+			'min-width',
+			'padding',
+			'padding-bottom',
+			'padding-left',
+			'padding-right',
+			'padding-top',
+			'width',
+		),
+		true
+	);
+}
+
+/**
+ * Removes inline formatting wrappers that contain no visible text and cannot paint a box.
+ *
+ * Examples include spans around a bare <br> or a colored non-breaking space. Wrappers with
+ * background, border, dimensions, padding, margins, or non-inline display are preserved
+ * because they may be intentional visual material even when text is blank.
+ *
+ * @param DOMDocument $doc Document.
+ * @return void
+ */
+function wai_unwrap_non_visual_empty_inline_wrappers( DOMDocument $doc ) {
+	$changed = true;
+	while ( $changed ) {
+		$changed = false;
+		foreach ( array( 'em', 'span', 'strong' ) as $tag_name ) {
+			$nodes = iterator_to_array( $doc->getElementsByTagName( $tag_name ) );
+			foreach ( $nodes as $node ) {
+				if ( wai_is_non_visual_empty_inline_wrapper( $node ) ) {
+					wai_unwrap_element( $node );
+					$changed = true;
+				}
+			}
+		}
+	}
+}
+
+/**
+ * @param DOMElement $element Element.
+ * @return bool
+ */
+function wai_is_non_visual_empty_inline_wrapper( DOMElement $element ) {
+	$tag = strtolower( $element->tagName );
+	if ( ! wai_is_inline_formatting_tag( $tag ) ) {
+		return false;
+	}
+	if ( 'span' === $tag && wai_is_blank_block_marker_span( $element ) ) {
+		return false;
+	}
+	if ( $element->hasAttribute( 'style' ) && wai_inline_style_can_paint_empty_wrapper( $element->getAttribute( 'style' ) ) ) {
+		return false;
+	}
+	return wai_inline_wrapper_has_no_visible_content( $element );
+}
+
+/**
+ * @param string $style Cleaned inline CSS.
+ * @return bool
+ */
+function wai_inline_style_can_paint_empty_wrapper( $style ) {
+	foreach ( wai_parse_style_declarations( $style ) as $declaration ) {
+		$property = $declaration['property'];
+		$value    = strtolower( $declaration['value'] );
+		if (
+			'display' === $property
+			&& ! in_array( $value, array( 'inline', 'initial', 'inherit', 'unset' ), true )
+		) {
+			return true;
+		}
+		if ( 0 === strpos( $property, 'background' ) || 0 === strpos( $property, 'border' ) ) {
+			return true;
+		}
+		if ( preg_match( '/^(height|width|min-height|min-width|max-height|max-width|margin|margin-|padding|padding-)/', $property ) ) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
+ * Coalesces needless boundaries that WeChat often inserts within one text run.
+ *
+ * The sanitizer can turn two adjacent source spans into equivalent safe inline elements
+ * with identical attributes. Keeping the split is noisy in WordPress and makes future
+ * editing harder, so merge only non-interactive phrasing elements where the tag and
+ * cleaned attributes are exactly the same. Block elements and anchors are intentionally
+ * excluded because their sibling boundaries can carry layout or editor meaning even when
+ * attributes match.
+ *
+ * @param DOMDocument $doc Document.
+ * @return void
+ */
+function wai_merge_adjacent_equivalent_inline_elements( DOMDocument $doc ) {
+	wai_merge_adjacent_equivalent_inline_children( $doc->documentElement );
+	$doc->normalizeDocument();
+}
+
+/**
+ * @param DOMNode|null $parent Parent node.
+ * @return void
+ */
+function wai_merge_adjacent_equivalent_inline_children( $parent ) {
+	if ( ! $parent ) {
+		return;
+	}
+
+	$child = $parent->firstChild;
+	while ( $child ) {
+		$next = $child->nextSibling;
+		if (
+			$next
+			&& XML_ELEMENT_NODE === $child->nodeType
+			&& XML_ELEMENT_NODE === $next->nodeType
+			&& wai_are_mergeable_inline_elements( $child, $next )
+		) {
+			while ( $next->firstChild ) {
+				$child->appendChild( $next->firstChild );
+			}
+			$parent->removeChild( $next );
+			continue;
+		}
+		$child = $child->nextSibling;
+	}
+
+	$children = iterator_to_array( $parent->childNodes );
+	foreach ( $children as $child ) {
+		wai_merge_adjacent_equivalent_inline_children( $child );
+	}
+}
+
+/**
+ * @param DOMElement $left  Left element.
+ * @param DOMElement $right Right element.
+ * @return bool
+ */
+function wai_are_mergeable_inline_elements( DOMElement $left, DOMElement $right ) {
+	$tag = strtolower( $left->tagName );
+	if ( $tag !== strtolower( $right->tagName ) ) {
+		return false;
+	}
+	if ( ! wai_is_inline_formatting_tag( $tag ) ) {
+		return false;
+	}
+
+	return wai_get_element_attribute_signature( $left ) === wai_get_element_attribute_signature( $right );
+}
+
+/**
+ * @param string $tag Tag name.
+ * @return bool
+ */
+function wai_is_inline_formatting_tag( $tag ) {
+	return in_array( strtolower( $tag ), array( 'em', 'span', 'strong' ), true );
+}
+
+/**
+ * @param DOMElement $element Element.
+ * @return array<string,string>
+ */
+function wai_get_element_attribute_signature( DOMElement $element ) {
+	$attributes = array();
+	foreach ( iterator_to_array( $element->attributes ) as $attribute ) {
+		$attributes[ strtolower( $attribute->name ) ] = $attribute->value;
+	}
+	ksort( $attributes );
+	return $attributes;
 }
 
 /**

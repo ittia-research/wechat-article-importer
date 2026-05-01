@@ -353,6 +353,66 @@ assert_not_contains( 'wxw-img', $clean, 'WeChat image class is removed' );
 assert_not_contains( $source_image, $clean, 'remote image URL is not stored in post content' );
 assert_not_contains( $bg_image, $clean, 'remote background URL is not stored in post content' );
 
+$split_text_clean = wai_prepare_import_content(
+	'<p style="white-space: normal; margin: 0px; padding: 0px; box-sizing: border-box;">'
+	. '<span style="box-sizing: border-box;">◉关于</span>'
+	. '<span style="box-sizing: border-box;">管奇的合照很多，个人照很少。在合照里，他也总在后排和边上，安安静静，笑容温和。这张照片拍摄于2024年12月，杭州千岛湖，东部网络的年会，他站在那里看着大家交换种子。</span>'
+	. '</p>'
+);
+$expected_split_text_clean = '<p style="white-space:normal;margin:0px;padding:0px;box-sizing:border-box">'
+	. '◉关于管奇的合照很多，个人照很少。在合照里，他也总在后排和边上，安安静静，笑容温和。这张照片拍摄于2024年12月，杭州千岛湖，东部网络的年会，他站在那里看着大家交换种子。'
+	. '</p>';
+assert_true(
+	$expected_split_text_clean === $split_text_clean,
+	'adjacent text-only box-sizing spans are unwrapped into one clean text run'
+);
+
+$styled_split_clean = wai_prepare_import_content(
+	'<p><span style="font-size: 15px; color: red;">Hello </span><span style="font-size:15px;color:red">world</span></p>'
+);
+assert_contains( '<span style="font-size:15px;color:red">Hello world</span>', $styled_split_clean, 'adjacent equivalent styled spans are merged' );
+assert_not_contains( '</span><span style="font-size:15px;color:red">', $styled_split_clean, 'equivalent styled spans are not left split' );
+
+$box_sizing_noise_clean = wai_prepare_import_content(
+	'<p><span style="color: #04743d; box-sizing: border-box;">官方网站</span><span style="color:#04743d;box-sizing:border-box">www.foodthink.cn</span></p>'
+);
+assert_contains( '<span style="color:#04743d">官方网站www.foodthink.cn</span>', $box_sizing_noise_clean, 'ineffective inline box-sizing declarations are removed before equivalent spans merge' );
+
+$box_sizing_dependency_clean = wai_prepare_import_content(
+	'<p><span style="box-sizing: border-box; width: 10px;">wide</span><span style="box-sizing:border-box;width:10px">text</span></p>'
+);
+assert_contains( '<span style="box-sizing:border-box;width:10px">widetext</span>', $box_sizing_dependency_clean, 'inline box-sizing is retained when the same style has box-size dependencies' );
+
+$strong_split_clean = wai_prepare_import_content(
+	'<p><strong style="box-sizing:border-box">《寻找管奇》</strong><strong style="box-sizing:border-box">《管奇，再会啊》</strong></p>'
+);
+assert_contains( '<strong>《寻找管奇》《管奇，再会啊》</strong>', $strong_split_clean, 'equivalent semantic inline elements merge after ineffective style cleanup' );
+
+$distinct_split_clean = wai_prepare_import_content(
+	'<p><span style="color:red">red</span><span style="color:blue">blue</span></p>'
+);
+assert_contains( '</span><span style="color:blue">', $distinct_split_clean, 'adjacent spans with different styles stay separate' );
+
+$linked_split_clean = wai_prepare_import_content(
+	'<p><a href="https://mp.weixin.qq.com/s/example" target="_blank">first</a><a href="https://mp.weixin.qq.com/s/example" target="_blank">second</a></p>'
+);
+assert_contains( '</a><a href="https://mp.weixin.qq.com/s/example" target="_blank" rel="noopener noreferrer">second</a>', $linked_split_clean, 'adjacent links keep separate editor boundaries' );
+
+$empty_inline_break_clean = wai_prepare_import_content( '<p style="margin:0px"><span style="letter-spacing:0.6px"><br></span></p>' );
+assert_contains( 'height:0;line-height:0;vertical-align:baseline;overflow:hidden', $empty_inline_break_clean, 'non-visual empty inline wrappers around line breaks are normalized as blank paragraph spacing' );
+assert_not_contains( 'letter-spacing:0.6px"><br', $empty_inline_break_clean, 'non-visual empty inline styles are not retained around bare line breaks' );
+
+$empty_inline_space_clean = wai_prepare_import_content( '<p>视频来源：泽恩<span style="color:rgb(111, 56, 0)"> </span></p>' );
+assert_contains( '<p>视频来源：泽恩 </p>', $empty_inline_space_clean, 'non-visual styled wrappers around spacing are unwrapped' );
+assert_not_contains( 'color:rgb(111, 56, 0)', $empty_inline_space_clean, 'color-only spacing wrappers are not retained' );
+
+$painted_empty_inline_clean = wai_prepare_import_content( '<p>before<span style="background-color:red"><br></span>after</p>' );
+assert_contains( '<span style="background-color:red"><br></span>', $painted_empty_inline_clean, 'empty inline wrappers that may paint a visual box are preserved inside non-empty text blocks' );
+
+$painted_empty_paragraph_clean = wai_prepare_import_content( '<p><span style="background-color:red"><strong><span style="color:white"><br></span></strong></span></p>' );
+assert_contains( 'height:0;line-height:0;vertical-align:baseline;overflow:hidden', $painted_empty_paragraph_clean, 'paragraphs containing only empty inline wrappers are normalized as blank spacing' );
+assert_not_contains( 'background-color:red', $painted_empty_paragraph_clean, 'empty painted inline wrappers are not retained when the whole paragraph is blank' );
+
 $unsafe = wai_prepare_import_content(
 	'<p style="color:red;position:fixed;background:url(javascript:alert(1));filter:expression(alert(1));width:10px"><a href="javascript:alert(1)" target="_blank">bad</a><svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"></path></svg></p>'
 );
@@ -377,6 +437,10 @@ assert_true( ! in_array( 'https://example.test/not-allowed.jpg', wai_collect_ima
 $legacy_marker_clean = wai_prepare_import_content( '<p style="margin:0px"><span style="display:inline-block;width:0;min-height:1em;line-height:inherit;vertical-align:baseline;overflow:hidden;">&nbsp;</span></p>' );
 assert_contains( 'height:0;line-height:0;vertical-align:baseline;overflow:hidden', $legacy_marker_clean, 'legacy spacer markers are normalized to non-inflating markers' );
 assert_not_contains( 'min-height:1em', $legacy_marker_clean, 'legacy spacer marker min-height is removed' );
+
+$empty_box_sizing_span_clean = wai_prepare_import_content( '<p style="margin:0px"><span style="box-sizing:border-box"><br></span></p>' );
+assert_contains( 'height:0;line-height:0;vertical-align:baseline;overflow:hidden', $empty_box_sizing_span_clean, 'empty box-sizing spans are unwrapped before blank paragraph normalization' );
+assert_not_contains( 'box-sizing:border-box"><br', $empty_box_sizing_span_clean, 'empty box-sizing spans are not stored as split spacer markup' );
 
 $nested_visual_section = wai_prepare_import_content( '<section style="text-align:right;margin:-15px 0px 0px"><section style="display:inline-block;width:55px;height:15px;vertical-align:top;overflow:hidden;background-image:linear-gradient(red, blue)">&nbsp;</section></section>' );
 assert_contains( '<section style="text-align:right;margin:-15px 0px 0px"><section style="display:inline-block;width:55px;height:15px;vertical-align:top;overflow:hidden;background-image:linear-gradient(red, blue)">', $nested_visual_section, 'visual child sections are not collapsed into their parent spacer' );

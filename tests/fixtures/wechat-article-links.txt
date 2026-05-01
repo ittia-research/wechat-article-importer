@@ -1,0 +1,7 @@
+# WeChat articles used for importer cleanup regression testing.
+# These are intentionally not fetched by the default offline test suite.
+https://mp.weixin.qq.com/s/56y0XwVvrgsjwfg0xK16Cg
+https://mp.weixin.qq.com/s/QruBSiI5tSw1nekiW3iMmA
+https://mp.weixin.qq.com/s/Gmr040LVpa4ZWxYVUYjmSg
+https://mp.weixin.qq.com/s/3a0p8hyw6oqK0t2tfe2oGw
+https://mp.weixin.qq.com/s/NvSeBCggPViBCkEH7Us0hQ
