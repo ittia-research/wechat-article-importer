@@ -398,6 +398,17 @@ $linked_split_clean = wai_prepare_import_content(
 );
 assert_contains( '</a><a href="https://mp.weixin.qq.com/s/example" target="_blank" rel="noopener noreferrer">second</a>', $linked_split_clean, 'adjacent links keep separate editor boundaries' );
 
+$redundant_anchor_title_clean = wai_prepare_import_content(
+	'<p><a href="https://mp.weixin.qq.com/s/example?foo=1&amp;bar=2" title="https://mp.weixin.qq.com/s/example?foo=1&amp;bar=2" target="_blank">image link</a></p>'
+);
+assert_contains( '<a href="https://mp.weixin.qq.com/s/example?foo=1&amp;bar=2" target="_blank" rel="noopener noreferrer">image link</a>', $redundant_anchor_title_clean, 'redundant URL-only anchor title is removed' );
+assert_not_contains( 'title=', $redundant_anchor_title_clean, 'anchor title is removed only when it duplicates href' );
+
+$meaningful_anchor_title_clean = wai_prepare_import_content(
+	'<p><a href="https://example.test/article" title="Read the original article">article</a></p>'
+);
+assert_contains( 'title="Read the original article"', $meaningful_anchor_title_clean, 'meaningful anchor title is preserved' );
+
 $empty_inline_break_clean = wai_prepare_import_content( '<p style="margin:0px"><span style="letter-spacing:0.6px"><br></span></p>' );
 assert_contains( 'height:0;line-height:0;vertical-align:baseline;overflow:hidden', $empty_inline_break_clean, 'non-visual empty inline wrappers around line breaks are normalized as blank paragraph spacing' );
 assert_not_contains( 'letter-spacing:0.6px"><br', $empty_inline_break_clean, 'non-visual empty inline styles are not retained around bare line breaks' );

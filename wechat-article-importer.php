@@ -1141,6 +1141,28 @@ function wai_clean_element_attributes( DOMElement $element ) {
 		$rel = array_filter( array_unique( array_merge( $rel, array( 'noopener', 'noreferrer' ) ) ) );
 		$element->setAttribute( 'rel', implode( ' ', $rel ) );
 	}
+
+	if ( 'a' === $tag ) {
+		wai_remove_redundant_anchor_title( $element );
+	}
+}
+
+/**
+ * Removes tooltip noise when a WeChat link stores the destination URL as title.
+ *
+ * @param DOMElement $anchor Anchor element.
+ * @return void
+ */
+function wai_remove_redundant_anchor_title( DOMElement $anchor ) {
+	if ( ! $anchor->hasAttribute( 'title' ) || ! $anchor->hasAttribute( 'href' ) ) {
+		return;
+	}
+
+	$normalized_href  = wai_normalize_url_attribute( $anchor->getAttribute( 'href' ) );
+	$normalized_title = wai_normalize_url_attribute( $anchor->getAttribute( 'title' ) );
+	if ( '' !== $normalized_href && $normalized_href === $normalized_title ) {
+		$anchor->removeAttribute( 'title' );
+	}
 }
 
 /**
