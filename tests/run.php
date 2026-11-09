@@ -461,6 +461,23 @@ foreach ( array( '<section><br></section>', '<section style="line-height:2;font-
 	assert_contains( '<section><span style="display:inline-block;width:0;height:0;overflow:hidden;line-height:0;vertical-align:top;">', wai_prepare_import_content( '<section>a</section>' . $blank_line . '<section>b</section>' ), 'a blank line section keeps a marker, since TinyMCE saves a lone line break as an empty block: ' . $blank_line );
 }
 
+// A blank block keeps its number of lines, as one marker per line with line breaks only between them.
+$section_line   = '<span style="display:inline-block;width:0;height:0;overflow:hidden;line-height:0;vertical-align:top;">' . "\u{a0}</span>";
+$paragraph_line = '<span style="display:inline-block;width:0;height:0;line-height:0;vertical-align:baseline;overflow:hidden;">' . "\u{a0}</span>";
+$blank_lines    = array(
+	'<section><br><br><br></section>'                                             => '<section>' . $section_line . '<br>' . $section_line . '<br>' . $section_line . '</section>',
+	'<section style="line-height:2"><span><br></span><br></section>'            => '<section>' . $section_line . '<br>' . $section_line . '</section>',
+	'<p><br><br></p>'                                                             => '<p>' . $paragraph_line . '<br>' . $paragraph_line . '</p>',
+	'<p style="margin:0px"><span style="letter-spacing:1px"><br><br></span></p>' => '<p style="margin:0px">' . $paragraph_line . '<br>' . $paragraph_line . '</p>',
+	'<p>&nbsp;</p>'                                                               => '<p>' . $paragraph_line . '</p>',
+	'<p>&nbsp;<br></p>'                                                           => '<p>' . $paragraph_line . '</p>',
+	'<p><br>&nbsp;</p>'                                                           => '<p>' . $paragraph_line . '<br>' . $paragraph_line . '</p>',
+	"<section>\n<br>\n</section>"                                                 => '<section>' . $section_line . '</section>',
+);
+foreach ( $blank_lines as $blank_block => $expected ) {
+	assert_contains( '<p>a</p>' . $expected . '<p>b</p>', wai_prepare_import_content( '<p>a</p>' . $blank_block . '<p>b</p>' ), 'a blank block keeps its number of lines: ' . json_encode( $blank_block ) );
+}
+
 // Site typography: the theme owns font, body size and line spacing.
 $no_inherited = WAI_NO_INHERITED_TYPOGRAPHY;
 $typography   = wai_remove_site_typography( 'font-family:Optima-Regular, PingFangTC-light;color:red', $no_inherited );

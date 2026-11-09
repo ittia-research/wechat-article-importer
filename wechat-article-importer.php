@@ -1512,6 +1512,13 @@ function wai_clean_class_attribute( $class ) {
 }
 
 /**
+ * Replaces the content of blank blocks with editor-stable markers, one per
+ * line, so they keep their number of lines.
+ *
+ * Line breaks go only between markers. wpautop() turns two breaks in a row
+ * into a paragraph break and drops a break right after a block tag, and
+ * editors drop a trailing break, so a block of breaks alone loses its lines.
+ *
  * @param DOMDocument $doc Document.
  * @return void
  */
@@ -1522,12 +1529,39 @@ function wai_normalize_blank_blocks( DOMDocument $doc ) {
 			if ( ! wai_is_visually_empty_element( $node ) ) {
 				continue;
 			}
+			$lines = wai_blank_block_line_count( $node );
 			while ( $node->firstChild ) {
 				$node->removeChild( $node->firstChild );
 			}
-			wai_append_blank_block_marker( $doc, $node );
+			for ( $i = 0; $i < $lines; $i++ ) {
+				if ( $i > 0 ) {
+					$node->appendChild( $doc->createElement( 'br' ) );
+				}
+				wai_append_blank_block_marker( $doc, $node );
+			}
 		}
 	}
+}
+
+/**
+ * @param DOMElement $element A blank block: line breaks, white space and markers.
+ * @return int Lines the block shows: one per line break, one more when a
+ *     marker or a non-breaking space follows the last break, and at least one.
+ */
+function wai_blank_block_line_count( DOMElement $element ) {
+	$breaks    = 0;
+	$open_line = false;
+	$xpath     = new DOMXPath( $element->ownerDocument );
+	foreach ( $xpath->query( './/br | .//text()', $element ) as $node ) {
+		if ( XML_ELEMENT_NODE === $node->nodeType ) {
+			++$breaks;
+			$open_line = false;
+		} elseif ( '' !== trim( $node->nodeValue ) ) {
+			// Collapsible white space makes no line; a non-breaking space does.
+			$open_line = true;
+		}
+	}
+	return max( 1, $breaks + ( $open_line ? 1 : 0 ) );
 }
 
 /**

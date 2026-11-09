@@ -41,7 +41,7 @@ custom plugin-specific attachment hash remains `_wai_attachment_content_md5`.
 
 ## Import cleanup strategy
 
-The importer stores a WordPress-stable version of the WeChat article HTML rather than the raw source. It keeps layout-critical inline styles, localizes image/background URLs, converts invalid block-wrapping image links to editor-stable image links, rewrites intentional blank spacers, including blank-line sections that TinyMCE would save empty, into retained inline markers, replaces WeChat placeholder SVGs with hidden standard spans, and removes WeChat-only/editor-only attributes and custom tags.
+The importer stores a WordPress-stable version of the WeChat article HTML rather than the raw source. It keeps layout-critical inline styles, localizes image/background URLs, converts invalid block-wrapping image links to editor-stable image links, rewrites intentional blank spacers, including blank-line sections that TinyMCE would save empty, into retained inline markers that keep the spacer's number of lines, replaces WeChat placeholder SVGs with hidden standard spans, and removes WeChat-only/editor-only attributes and custom tags.
 
 Typography that the site theme owns is removed by `wai_remove_site_typography()`, so imported articles follow the theme's font, body size and line spacing for each language instead of WeChat's phone layout:
 
