@@ -2,7 +2,7 @@
 Contributors: ittia, xiaozhai001
 Tags: wechat, wordpress, import, 微信公众号文章, 采集, 导入
 Requires at least: 5.0
-Tested up to: 6.8
+Tested up to: 6.9
 Stable tag: 0.3.0
 Requires PHP: 7.4
 License: GPLv2
