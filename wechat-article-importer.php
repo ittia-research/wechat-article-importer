@@ -383,7 +383,7 @@ function wai_importer_page_html() {
 					</tr>
 				</tbody>
 			</table>
-			<?php submit_button( __( 'Start Import', 'wechat-article-importer' ), 'primary', 'submit', true, array( 'class' => 'wai-submit-button' ) ); ?>
+			<?php submit_button( __( 'Start Import', 'wechat-article-importer' ), 'primary wai-submit-button' ); ?>
 		</form>
 
 		<div id="wai-feedback" style="margin-top: 20px;"></div>
