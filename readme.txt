@@ -3,7 +3,7 @@ Contributors: ittia, xiaozhai001
 Tags: wechat, wordpress, import, 微信公众号文章, 采集, 导入
 Requires at least: 5.0
 Tested up to: 6.8
-Stable tag: 0.2.3
+Stable tag: 0.3.0
 Requires PHP: 7.4
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -54,6 +54,11 @@ New and regenerated attachments get `_wai_attachment_content_md5` automatically.
 Media files newly uploaded by this importer get `_wai_imported_attachment=1` plus `_wai_source_image_url` with the original WeChat image URL. The `_wai_attachment_content_md5` key is source-agnostic dedupe metadata and can also exist on manual uploads.
 
 == Changelog ==
+
+= 0.3.0 =
+* Imported articles now follow the site theme's font, body text size and line spacing: `font-family` is removed, body text sizes (14-18px) and text line spacing are removed where the theme's value can take their place, and caption, display and layout sizes are kept.
+* Added `wai_remove_site_typography()`, which a one-time backfill can reuse to apply the same rule to existing posts.
+* Fixed the Start Import button not being disabled, and not showing progress, while an import runs.
 
 = 0.2.3 =
 * Added a plugin-specific import capability that is granted to administrators and editors automatically, so editor accounts can see and run the importer without receiving broad site settings permissions.
