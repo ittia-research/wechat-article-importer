@@ -43,6 +43,17 @@ custom plugin-specific attachment hash remains `_wai_attachment_content_md5`.
 
 The importer stores a WordPress-stable version of the WeChat article HTML rather than the raw source. It keeps layout-critical inline styles, localizes image/background URLs, converts invalid block-wrapping image links to editor-stable image links, rewrites intentional blank spacers into retained inline markers, replaces WeChat placeholder SVGs with hidden standard spans, and removes WeChat-only/editor-only attributes and custom tags.
 
+Typography that the site theme owns is removed by `wai_remove_site_typography()`, so imported articles follow the theme's font, body size and line spacing for each language instead of WeChat's phone layout:
+
+- `font-family` is always removed.
+- `font-size` is removed when it is a body text size (14-18px, or the same in pt) and no ancestor keeps a size. Caption, credit and display sizes stay.
+- `line-height` is removed when it is text spacing (1-2.5, unitless or em), the element sets no `height` or `min-height`, and neither the element nor an ancestor keeps a size or a line-height. Image wrappers with `line-height: 0`, centred badges and tall label bands keep theirs.
+- A `font` shorthand stays and counts as a kept size and line-height. A size or line-height declared twice in one style stays.
+
+Letter spacing and justified alignment stay, because they suit Chinese text; a theme can reset them for other languages. The function works on one style attribute plus what its ancestors keep, so a one-time backfill of existing posts can reuse it with an HTML walker that tracks ancestors.
+
+The style allowlist splits inline CSS on every semicolon, so quotes, parentheses or comments cannot hide a disallowed declaration inside an allowed one. Later steps parse the cleaned CSS as a browser does, keeping quoted font names and `url()` values whole.
+
 Media dedupe now uses source-agnostic attachment content hashes stored in `_wai_attachment_content_md5`. WeChat imports download and verify image bytes, compute the MD5, then reuse any existing attachment with the same canonical hash before creating a new media file. New or regenerated attachments also receive the same canonical MD5 metadata; legacy source-hash keys such as `_iafw_source_md5` and `_wai_source_md5` are no longer read or written. Because the MD5 metadata can exist on manual uploads too, newly uploaded importer media are additionally marked with `_wai_imported_attachment` and `_wai_source_image_url`. Existing attachments reused by dedupe are not marked as importer-created media.
 
 Existing attachments are not scanned automatically. To populate old media, run a one-time WP-CLI backfill that calls `wai_update_attachment_content_md5_meta( $attachment_id )` for each attachment, or use `wp media regenerate --yes` when thumbnail regeneration is acceptable.

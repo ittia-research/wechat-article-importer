@@ -21,7 +21,7 @@ Paste a WeChat Official Account article URL and the plugin will fetch:
 * Featured image
 * Inline images, downloaded into the WordPress media library
 
-The importer runs as a multi-step admin AJAX flow so large articles can be processed without a single long blocking request. Before saving, it converts WeChat source HTML into WordPress-stable HTML: layout-critical inline styles are preserved, image/background URLs are localized, invalid block-wrapping image links are normalized, intentional blank spacers are rewritten into editor-stable inline markers, placeholder SVGs are replaced, and WeChat-only custom tags/attributes are removed. Media de-duplication is site-wide through canonical attachment content MD5 metadata, not WeChat source URL hashes.
+The importer runs as a multi-step admin AJAX flow so large articles can be processed without a single long blocking request. Before saving, it converts WeChat source HTML into WordPress-stable HTML: layout-critical inline styles are preserved, the article font, body text size and line spacing are left to the site theme, image/background URLs are localized, invalid block-wrapping image links are normalized, intentional blank spacers are rewritten into editor-stable inline markers, placeholder SVGs are replaced, and WeChat-only custom tags/attributes are removed. Media de-duplication is site-wide through canonical attachment content MD5 metadata, not WeChat source URL hashes.
 
 == Installation ==
 

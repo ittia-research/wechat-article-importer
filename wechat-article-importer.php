@@ -28,6 +28,10 @@ const WAI_MAX_IMAGE_BYTES = 20971520;
 const WAI_IMPORT_CAPABILITY = 'wai_import_wechat_articles';
 const WAI_CAPABILITY_VERSION = '1';
 const WAI_CAPABILITY_VERSION_OPTION = 'wai_capability_version';
+const WAI_NO_INHERITED_TYPOGRAPHY = array(
+	'font-size'   => false,
+	'line-height' => false,
+);
 
 
 register_activation_hook( __FILE__, 'wai_activate' );
@@ -356,7 +360,7 @@ function wai_importer_page_html() {
 	<div class="wrap">
 		<h1><?php esc_html_e( 'WeChat Article Importer', 'wechat-article-importer' ); ?></h1>
 		<p><?php esc_html_e( 'Paste a WeChat Official Account article link to fetch the title, content, cover image, and inline images automatically, then save the result as a WordPress draft.', 'wechat-article-importer' ); ?></p>
-		<p class="description"><?php esc_html_e( 'Imported content is converted into WordPress-stable HTML: layout-critical inline styles are preserved, while WeChat editor markers, empty attributes, and unstable placeholder elements are removed.', 'wechat-article-importer' ); ?></p>
+		<p class="description"><?php esc_html_e( 'Imported content is converted into WordPress-stable HTML: layout styles are preserved, fonts, body text sizes and line spacing are left to the site theme, and WeChat editor markers, empty attributes, and unstable placeholder elements are removed.', 'wechat-article-importer' ); ?></p>
 
 		<form id="wai-importer-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 			<table class="form-table">
@@ -758,6 +762,7 @@ function wai_prepare_import_content( $content_html, $processed_images = array() 
 	wai_remove_wechat_only_elements( $doc, $xpath );
 	wai_replace_placeholder_svgs( $doc );
 	wai_clean_dom_tree( $doc );
+	wai_remove_site_typography_from_tree( $doc, WAI_NO_INHERITED_TYPOGRAPHY );
 	wai_simplify_inline_element_styles( $doc );
 	wai_unwrap_non_visual_empty_inline_wrappers( $doc );
 	wai_unwrap_redundant_spans( $doc );
@@ -1029,6 +1034,145 @@ function wai_clean_dom_tree( DOMDocument $doc ) {
 }
 
 /**
+ * Removes theme-owned typography from every inline style, top down, so each element
+ * knows which inheritable properties its ancestors keep.
+ *
+ * @param DOMNode                                $node      Parent node.
+ * @param array{font-size:bool,line-height:bool} $inherited What the node's ancestors keep.
+ * @return void
+ */
+function wai_remove_site_typography_from_tree( DOMNode $node, array $inherited ) {
+	foreach ( iterator_to_array( $node->childNodes ) as $child ) {
+		if ( ! $child instanceof DOMElement ) {
+			continue;
+		}
+		$child_inherited = $inherited;
+		if ( $child->hasAttribute( 'style' ) ) {
+			$result = wai_remove_site_typography( $child->getAttribute( 'style' ), $inherited );
+			if ( '' === $result['style'] ) {
+				$child->removeAttribute( 'style' );
+			} else {
+				$child->setAttribute( 'style', $result['style'] );
+			}
+			$child_inherited = $result['inherited'];
+		}
+		wai_remove_site_typography_from_tree( $child, $child_inherited );
+	}
+}
+
+/**
+ * Removes the typography that the site theme owns from one element's inline CSS.
+ *
+ * The theme sets the article font, body text size and line spacing for each
+ * language, and WeChat's copies of them would override it. A declaration is
+ * removed only where the inherited theme value can take its place:
+ *
+ * - font-family, always.
+ * - font-size, when it is a body text size (14-18px) and no ancestor keeps a
+ *   size, so the text gets the article size rather than a caption size.
+ * - line-height, when it is text spacing (1-2.5, unitless or em), the element
+ *   keeps no height that the spacing centres text in, and neither the element
+ *   nor an ancestor keeps a size or a line-height (such as an image wrapper's
+ *   line-height:0, which a removed child value would then inherit).
+ *
+ * Letter spacing and justified alignment stay: they suit Chinese text, and the
+ * theme resets them for Latin-script languages. A `font` shorthand counts as a
+ * kept size and line-height. A size or line-height declared more than once
+ * stays, since which one applies depends on order and priority.
+ *
+ * @param string                                 $style     Inline CSS.
+ * @param array{font-size:bool,line-height:bool} $inherited Whether an ancestor keeps each property.
+ * @return array{style:string,inherited:array{font-size:bool,line-height:bool}} The remaining CSS,
+ *     unchanged when nothing is removed, and what the element's children inherit.
+ */
+function wai_remove_site_typography( $style, array $inherited ) {
+	$declarations = wai_parse_style_declarations( $style );
+	$properties   = array_column( $declarations, 'property' );
+	$counts       = array_count_values( $properties );
+	$sets_height  = isset( $counts['height'] ) || isset( $counts['min-height'] );
+	$sets_font    = isset( $counts['font'] );
+
+	$removed         = array();
+	$keeps_font_size = $sets_font;
+	foreach ( $declarations as $index => $declaration ) {
+		if ( 'font-family' === $declaration['property'] ) {
+			$removed[ $index ] = true;
+		} elseif ( 'font-size' === $declaration['property'] ) {
+			if ( 1 === $counts['font-size'] && ! $inherited['font-size'] && wai_is_body_font_size( $declaration['value'] ) ) {
+				$removed[ $index ] = true;
+			} else {
+				$keeps_font_size = true;
+			}
+		}
+	}
+
+	$keeps_line_height = $sets_font;
+	foreach ( $declarations as $index => $declaration ) {
+		if ( 'line-height' !== $declaration['property'] ) {
+			continue;
+		}
+		if (
+			1 === $counts['line-height']
+			&& ! $sets_height
+			&& ! $keeps_font_size
+			&& ! $inherited['font-size']
+			&& ! $inherited['line-height']
+			&& wai_is_text_line_height( $declaration['value'] )
+		) {
+			$removed[ $index ] = true;
+		} else {
+			$keeps_line_height = true;
+		}
+	}
+
+	$children_inherit = array(
+		'font-size'   => $inherited['font-size'] || $keeps_font_size,
+		'line-height' => $inherited['line-height'] || $keeps_line_height,
+	);
+	if ( empty( $removed ) ) {
+		return array(
+			'style'     => $style,
+			'inherited' => $children_inherit,
+		);
+	}
+
+	$kept = array();
+	foreach ( $declarations as $index => $declaration ) {
+		if ( ! isset( $removed[ $index ] ) ) {
+			$kept[] = $declaration['property'] . ':' . $declaration['value'];
+		}
+	}
+	return array(
+		'style'     => implode( ';', $kept ),
+		'inherited' => $children_inherit,
+	);
+}
+
+/**
+ * @param string $value CSS font-size value.
+ * @return bool Whether the value is a body text size, 14-18px.
+ */
+function wai_is_body_font_size( $value ) {
+	if ( ! preg_match( '/^(\d+(?:\.\d+)?|\.\d+)(px|pt)$/i', trim( $value ), $matches ) ) {
+		return false;
+	}
+	$pixels = (float) $matches[1] * ( 'pt' === strtolower( $matches[2] ) ? 4 / 3 : 1 );
+	return $pixels >= 14 && $pixels <= 18;
+}
+
+/**
+ * @param string $value CSS line-height value.
+ * @return bool Whether the value is a text line spacing, 1-2.5 unitless or em.
+ */
+function wai_is_text_line_height( $value ) {
+	if ( ! preg_match( '/^(\d+(?:\.\d+)?|\.\d+)(em)?$/i', trim( $value ), $matches ) ) {
+		return false;
+	}
+	$ratio = (float) $matches[1];
+	return $ratio >= 1 && $ratio <= 2.5;
+}
+
+/**
  * @param DOMElement $element Element.
  * @return void
  */
@@ -1171,7 +1315,9 @@ function wai_remove_redundant_anchor_title( DOMElement $anchor ) {
  */
 function wai_clean_style_attribute( $style ) {
 	$declarations = array();
-	foreach ( wai_parse_style_declarations( $style ) as $declaration ) {
+	// Split on every semicolon, even inside quotes, parentheses or comments, so
+	// no declaration can carry another one past the property allowlist.
+	foreach ( wai_parse_raw_style_declarations( explode( ';', (string) $style ) ) as $declaration ) {
 		$property = $declaration['property'];
 		if ( ! wai_is_allowed_style_property( $property ) ) {
 			continue;
@@ -1585,12 +1731,23 @@ function wai_remove_ineffective_inline_style_declarations( $style ) {
 }
 
 /**
+ * Parses inline CSS into the declarations a browser sees. Not for sanitizing:
+ * wai_clean_style_attribute() splits on every semicolon instead.
+ *
  * @param string $style Inline CSS.
  * @return array<int,array{property:string,value:string}>
  */
 function wai_parse_style_declarations( $style ) {
+	return wai_parse_raw_style_declarations( wai_split_style_declarations( (string) $style ) );
+}
+
+/**
+ * @param string[] $raw_declarations Declarations as "property: value" text.
+ * @return array<int,array{property:string,value:string}>
+ */
+function wai_parse_raw_style_declarations( array $raw_declarations ) {
 	$declarations = array();
-	foreach ( explode( ';', (string) $style ) as $declaration ) {
+	foreach ( $raw_declarations as $declaration ) {
 		$declaration = trim( preg_replace( '/\s+/', ' ', $declaration ) );
 		if ( '' === $declaration || false === strpos( $declaration, ':' ) ) {
 			continue;
@@ -1604,6 +1761,54 @@ function wai_parse_style_declarations( $style ) {
 			'value'    => $value,
 		);
 	}
+	return $declarations;
+}
+
+/**
+ * Splits inline CSS on the semicolons that end declarations, not those inside
+ * quotes, parentheses or comments, such as a quoted font name or a url().
+ * Comments stay in the declaration text.
+ *
+ * @param string $style Inline CSS.
+ * @return string[] Raw declarations.
+ */
+function wai_split_style_declarations( $style ) {
+	$declarations = array();
+	$current      = '';
+	$quote        = '';
+	$depth        = 0;
+	$length       = strlen( $style );
+	for ( $i = 0; $i < $length; $i++ ) {
+		$char = $style[ $i ];
+		if ( '\\' === $char && $i + 1 < $length ) {
+			$current .= $char . $style[ ++$i ];
+			continue;
+		}
+		if ( '' === $quote && '/' === $char && '*' === ( $style[ $i + 1 ] ?? '' ) ) {
+			$end      = strpos( $style, '*/', $i + 2 );
+			$end      = false === $end ? $length : $end + 2;
+			$current .= substr( $style, $i, $end - $i );
+			$i        = $end - 1;
+			continue;
+		}
+		if ( '' !== $quote ) {
+			if ( $char === $quote ) {
+				$quote = '';
+			}
+		} elseif ( '"' === $char || "'" === $char ) {
+			$quote = $char;
+		} elseif ( '(' === $char ) {
+			++$depth;
+		} elseif ( ')' === $char && $depth > 0 ) {
+			--$depth;
+		} elseif ( ';' === $char && 0 === $depth ) {
+			$declarations[] = $current;
+			$current        = '';
+			continue;
+		}
+		$current .= $char;
+	}
+	$declarations[] = $current;
 	return $declarations;
 }
 

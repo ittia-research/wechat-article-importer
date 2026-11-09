@@ -141,13 +141,15 @@ msgstr ""
 
 #: wechat-article-importer.php:328
 msgid ""
-"Imported content is converted into WordPress-stable HTML: layout-critical "
-"inline styles are preserved, while WeChat editor markers, empty attributes, "
-"and unstable placeholder elements are removed."
+"Imported content is converted into WordPress-stable HTML: layout styles are "
+"preserved, fonts, body text sizes and line spacing are left to the site "
+"theme, and WeChat editor markers, empty attributes, and unstable placeholder "
+"elements are removed."
 msgstr ""
-"Imported content is converted into WordPress-stable HTML: layout-critical "
-"inline styles are preserved, while WeChat editor markers, empty attributes, "
-"and unstable placeholder elements are removed."
+"Imported content is converted into WordPress-stable HTML: layout styles are "
+"preserved, fonts, body text sizes and line spacing are left to the site "
+"theme, and WeChat editor markers, empty attributes, and unstable placeholder "
+"elements are removed."
 
 #: wechat-article-importer.php:334
 msgid "Article URL"

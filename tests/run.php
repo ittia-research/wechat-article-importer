@@ -368,10 +368,10 @@ assert_true(
 );
 
 $styled_split_clean = wai_prepare_import_content(
-	'<p><span style="font-size: 15px; color: red;">Hello </span><span style="font-size:15px;color:red">world</span></p>'
+	'<p><span style="font-size: 13px; color: red;">Hello </span><span style="font-size:13px;color:red">world</span></p>'
 );
-assert_contains( '<span style="font-size:15px;color:red">Hello world</span>', $styled_split_clean, 'adjacent equivalent styled spans are merged' );
-assert_not_contains( '</span><span style="font-size:15px;color:red">', $styled_split_clean, 'equivalent styled spans are not left split' );
+assert_contains( '<span style="font-size:13px;color:red">Hello world</span>', $styled_split_clean, 'adjacent equivalent styled spans are merged' );
+assert_not_contains( '</span><span style="font-size:13px;color:red">', $styled_split_clean, 'equivalent styled spans are not left split' );
 
 $box_sizing_noise_clean = wai_prepare_import_content(
 	'<p><span style="color: #04743d; box-sizing: border-box;">官方网站</span><span style="color:#04743d;box-sizing:border-box">www.foodthink.cn</span></p>'
@@ -456,6 +456,68 @@ assert_not_contains( 'box-sizing:border-box"><br', $empty_box_sizing_span_clean,
 $nested_visual_section = wai_prepare_import_content( '<section style="text-align:right;margin:-15px 0px 0px"><section style="display:inline-block;width:55px;height:15px;vertical-align:top;overflow:hidden;background-image:linear-gradient(red, blue)">&nbsp;</section></section>' );
 assert_contains( '<section style="text-align:right;margin:-15px 0px 0px"><section style="display:inline-block;width:55px;height:15px;vertical-align:top;overflow:hidden;background-image:linear-gradient(red, blue)">', $nested_visual_section, 'visual child sections are not collapsed into their parent spacer' );
 assert_contains( 'height:0;overflow:hidden;line-height:0;vertical-align:top', $nested_visual_section, 'visual child sections keep a zero-size marker' );
+
+// Site typography: the theme owns font, body size and line spacing.
+$no_inherited = WAI_NO_INHERITED_TYPOGRAPHY;
+$typography   = wai_remove_site_typography( 'font-family:Optima-Regular, PingFangTC-light;color:red', $no_inherited );
+assert_true( 'color:red' === $typography['style'], 'font-family is always removed' );
+
+$typography = wai_remove_site_typography( 'font-size:16px;letter-spacing:0.6px;text-align:justify', $no_inherited );
+assert_true( 'letter-spacing:0.6px;text-align:justify' === $typography['style'], 'body font size is removed while Chinese letter spacing and justification stay' );
+assert_true( ! $typography['inherited']['font-size'], 'a removed body size is not passed on as a kept ancestor size' );
+
+assert_true( '' === wai_remove_site_typography( 'font-size:12pt', $no_inherited )['style'], 'body size in points is removed' );
+assert_true( 'font-size:13px' === wai_remove_site_typography( 'font-size:13px', $no_inherited )['style'], 'caption size stays' );
+assert_true( 'font-size:10pt' === wai_remove_site_typography( 'font-size:10pt', $no_inherited )['style'], 'small size in points stays' );
+assert_true( 'font-size:24px' === wai_remove_site_typography( 'font-size:24px', $no_inherited )['style'], 'display size stays' );
+assert_true( wai_remove_site_typography( 'font-size:13px', $no_inherited )['inherited']['font-size'], 'a kept size is passed on to children' );
+
+$inside_caption = array( 'font-size' => true, 'line-height' => false );
+assert_true( 'font-size:15px' === wai_remove_site_typography( 'font-size:15px', $inside_caption )['style'], 'body size stays inside an ancestor that keeps a different size' );
+
+assert_true( 'color:red' === wai_remove_site_typography( 'line-height:2.2;color:red', $no_inherited )['style'], 'text line spacing is removed' );
+assert_true( '' === wai_remove_site_typography( 'line-height:2em', $no_inherited )['style'], 'text line spacing in em is removed' );
+assert_true( 'line-height:2em;height:2em' === wai_remove_site_typography( 'line-height:2em;height:2em', $no_inherited )['style'], 'line spacing that centres text in a fixed height stays' );
+assert_true( 'line-height:4' === wai_remove_site_typography( 'line-height:4', $no_inherited )['style'], 'band line spacing outside the text range stays' );
+assert_true( 'font-size:12px;line-height:1.5' === wai_remove_site_typography( 'font-size:12px;line-height:1.5', $no_inherited )['style'], 'line spacing paired with a kept size stays' );
+assert_true( 'line-height:1.6' === wai_remove_site_typography( 'line-height:1.6', $inside_caption )['style'], 'line spacing under an ancestor that keeps a size stays' );
+
+$image_wrapper = wai_remove_site_typography( 'line-height:0', $no_inherited );
+assert_true( 'line-height:0' === $image_wrapper['style'], 'zero line-height of an image wrapper stays' );
+assert_true( $image_wrapper['inherited']['line-height'], 'a kept line-height is passed on to children' );
+assert_true( 'line-height:1.75' === wai_remove_site_typography( 'line-height:1.75', $image_wrapper['inherited'] )['style'], 'text line spacing under a kept line-height stays, so it does not inherit zero' );
+
+$untouched = 'color: red; letter-spacing: 1px';
+assert_true( $untouched === wai_remove_site_typography( $untouched, $no_inherited )['style'], 'a style with nothing to remove is returned unchanged' );
+assert_true( 'color:red' === wai_remove_site_typography( "font-family:'A;B', serif;color:red", $no_inherited )['style'], 'a semicolon inside a quoted font name does not split the declaration' );
+assert_true( array( 'background:url("a;b")', 'color:red' ) === wai_split_style_declarations( 'background:url("a;b");color:red' ), 'a semicolon inside url() does not split the declaration' );
+assert_true( array( 'color:red/*(";*/', 'font-family:x' ) === wai_split_style_declarations( 'color:red/*(";*/;font-family:x' ), 'quotes, parentheses and semicolons inside a comment do not hide the next declaration' );
+
+$font_shorthand = wai_remove_site_typography( 'font:13px/1.6 serif', $no_inherited );
+assert_true( 'font:13px/1.6 serif' === $font_shorthand['style'], 'the font shorthand stays' );
+assert_true( $font_shorthand['inherited']['font-size'] && $font_shorthand['inherited']['line-height'], 'the font shorthand counts as a kept size and line spacing' );
+assert_true( 'font-size:16px;line-height:2' === wai_remove_site_typography( 'font-size:16px;line-height:2', $font_shorthand['inherited'] )['style'], 'body size and line spacing under a font shorthand stay' );
+assert_true( 'line-height:0;line-height:1.75' === wai_remove_site_typography( 'line-height:0;line-height:1.75', $no_inherited )['style'], 'a repeated line-height stays' );
+assert_true( 'font-size:13px;font-size:16px' === wai_remove_site_typography( 'font-size:13px;font-size:16px', $no_inherited )['style'], 'a repeated font size stays' );
+
+$smuggled = wai_prepare_import_content(
+	'<p style="color:red/*(*/;position:fixed;top:0;z-index:99999">overlay</p>'
+	. '<p style="color:red/*&quot;*/;position:fixed">overlay</p>'
+	. '<p style="background-image:url(https://mmbiz.qpic.cn/a&quot;b);position:fixed">overlay</p>'
+);
+assert_not_contains( 'position', $smuggled, 'comments, quotes and parentheses cannot carry a disallowed property past the style allowlist' );
+assert_not_contains( 'z-index', $smuggled, 'a comment cannot carry a disallowed stacking order past the style allowlist' );
+
+$typography_clean = wai_prepare_import_content(
+	'<section style="line-height: 2.2; letter-spacing: 0.6px; font-size: 16px; font-family: Optima-Regular, PingFangTC-light; text-align: justify;">'
+	. '<p style="margin: 0px;"><span style="font-family: Optima-Regular, PingFangTC-light;">body text</span></p>'
+	. '<section style="line-height: 0;"><span style="line-height: 1.75; font-size: 15px;">over image</span></section>'
+	. '<p style="font-size: 13px; line-height: 1.6; color: rgb(128, 128, 128);">caption</p>'
+	. '</section>'
+);
+assert_contains( '<section style="letter-spacing:0.6px;text-align:justify"><p style="margin:0px">body text</p>', $typography_clean, 'imports drop WeChat font, body size and line spacing, and unwrap spans left without styles' );
+assert_contains( '<section style="line-height:0"><span style="line-height:1.75">over image</span></section>', $typography_clean, 'imports keep line spacing under an image wrapper' );
+assert_contains( '<p style="font-size:13px;line-height:1.6;color:rgb(128, 128, 128)">caption</p>', $typography_clean, 'imports keep caption typography' );
 
 $html = '<html><head><meta property="og:image" content="https://mmbiz.qpic.cn/cover/0?wx_fmt=jpeg" /></head><body><h1 id="activity-name"> 今日谷雨，宜开封 </h1><div class="rich_media_content" id="js_content">' . $fixture . '</div><script>var ct = "1713625275";</script></body></html>';
 $article = wai_parse_wechat_article_html( $html );
