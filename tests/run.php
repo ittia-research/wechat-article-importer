@@ -457,6 +457,10 @@ $nested_visual_section = wai_prepare_import_content( '<section style="text-align
 assert_contains( '<section style="text-align:right;margin:-15px 0px 0px"><section style="display:inline-block;width:55px;height:15px;vertical-align:top;overflow:hidden;background-image:linear-gradient(red, blue)">', $nested_visual_section, 'visual child sections are not collapsed into their parent spacer' );
 assert_contains( 'height:0;overflow:hidden;line-height:0;vertical-align:top', $nested_visual_section, 'visual child sections keep a zero-size marker' );
 
+foreach ( array( '<section><br></section>', '<section style="line-height:2;font-size:16px"><br></section>', '<section><span><br></span></section>' ) as $blank_line ) {
+	assert_contains( '<section><span style="display:inline-block;width:0;height:0;overflow:hidden;line-height:0;vertical-align:top;">', wai_prepare_import_content( '<section>a</section>' . $blank_line . '<section>b</section>' ), 'a blank line section keeps a marker, since TinyMCE saves a lone line break as an empty block: ' . $blank_line );
+}
+
 // Site typography: the theme owns font, body size and line spacing.
 $no_inherited = WAI_NO_INHERITED_TYPOGRAPHY;
 $typography   = wai_remove_site_typography( 'font-family:Optima-Regular, PingFangTC-light;color:red', $no_inherited );

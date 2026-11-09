@@ -1555,7 +1555,9 @@ function wai_append_blank_block_marker( DOMDocument $doc, DOMElement $element ) 
 
 /**
  * @param DOMElement $element Element.
- * @return bool
+ * @return bool Whether the element is blank space that an editor could discard:
+ *     a blank paragraph, a blank block that holds a line break (one blank
+ *     line, which TinyMCE saves as an empty block), or a blank styled box.
  */
 function wai_is_visually_empty_element( DOMElement $element ) {
 	$text = trim( str_replace( html_entity_decode( '&nbsp;', ENT_QUOTES, 'UTF-8' ), '', $element->textContent ) );
@@ -1592,7 +1594,7 @@ function wai_is_visually_empty_element( DOMElement $element ) {
 			return false;
 	}
 
-	if ( 'p' === strtolower( $element->tagName ) ) {
+	if ( 'p' === strtolower( $element->tagName ) || $element->getElementsByTagName( 'br' )->length > 0 ) {
 		return true;
 	}
 	$style = strtolower( $element->getAttribute( 'style' ) );

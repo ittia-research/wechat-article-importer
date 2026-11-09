@@ -58,6 +58,7 @@ Media files newly uploaded by this importer get `_wai_imported_attachment=1` plu
 = 0.3.0 =
 * Imported articles now follow the site theme's font, body text size and line spacing: `font-family` is removed, body text sizes (14-18px) and text line spacing (1.5-2.5) are removed where the theme's value can take their place, and caption, display and layout sizes are kept.
 * Added `wai_remove_site_typography()`, which a one-time backfill can reuse to apply the same rule to existing posts.
+* Blank-line sections now keep an editor-stable marker, so saving the post in the classic editor no longer removes them.
 * Fixed the Start Import button not being disabled, and not showing progress, while an import runs.
 
 = 0.2.3 =
