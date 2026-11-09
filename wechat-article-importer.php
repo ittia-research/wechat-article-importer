@@ -1070,15 +1070,16 @@ function wai_remove_site_typography_from_tree( DOMNode $node, array $inherited )
  * - font-family, always.
  * - font-size, when it is a body text size (14-18px) and no ancestor keeps a
  *   size, so the text gets the article size rather than a caption size.
- * - line-height, when it is text spacing (1-2.5, unitless or em), the element
- *   keeps no height that the spacing centres text in, and neither the element
- *   nor an ancestor keeps a size or a line-height (such as an image wrapper's
- *   line-height:0, which a removed child value would then inherit).
+ * - line-height, when it is text spacing (1.5-2.5, unitless or em), the
+ *   element keeps no height that the spacing centres text in, and neither the
+ *   element nor an ancestor keeps a size or a line-height (such as an image
+ *   wrapper's line-height:0, which a removed child value would then inherit).
  *
- * Letter spacing and justified alignment stay: they suit Chinese text, and the
- * theme resets them for Latin-script languages. A `font` shorthand counts as a
- * kept size and line-height. A size or line-height declared more than once
- * stays, since which one applies depends on order and priority.
+ * A style with a `font` shorthand keeps all of its typography, and its
+ * children count as keeping a size and line-height. A size or line-height
+ * declared more than once stays, since which one applies depends on order and
+ * priority. Letter spacing and justified alignment stay: they suit Chinese
+ * text, and a theme can override them for other languages with !important.
  *
  * @param string                                 $style     Inline CSS.
  * @param array{font-size:bool,line-height:bool} $inherited Whether an ancestor keeps each property.
@@ -1087,13 +1088,23 @@ function wai_remove_site_typography_from_tree( DOMNode $node, array $inherited )
  */
 function wai_remove_site_typography( $style, array $inherited ) {
 	$declarations = wai_parse_style_declarations( $style );
-	$properties   = array_column( $declarations, 'property' );
-	$counts       = array_count_values( $properties );
+	$counts       = array_count_values( array_column( $declarations, 'property' ) );
 	$sets_height  = isset( $counts['height'] ) || isset( $counts['min-height'] );
-	$sets_font    = isset( $counts['font'] );
+
+	// A font shorthand sets the family, size and line spacing itself: a longhand
+	// removed after it would fall back to the shorthand's value, not the theme's.
+	if ( isset( $counts['font'] ) ) {
+		return array(
+			'style'     => $style,
+			'inherited' => array(
+				'font-size'   => true,
+				'line-height' => true,
+			),
+		);
+	}
 
 	$removed         = array();
-	$keeps_font_size = $sets_font;
+	$keeps_font_size = false;
 	foreach ( $declarations as $index => $declaration ) {
 		if ( 'font-family' === $declaration['property'] ) {
 			$removed[ $index ] = true;
@@ -1106,7 +1117,7 @@ function wai_remove_site_typography( $style, array $inherited ) {
 		}
 	}
 
-	$keeps_line_height = $sets_font;
+	$keeps_line_height = false;
 	foreach ( $declarations as $index => $declaration ) {
 		if ( 'line-height' !== $declaration['property'] ) {
 			continue;
@@ -1162,14 +1173,15 @@ function wai_is_body_font_size( $value ) {
 
 /**
  * @param string $value CSS line-height value.
- * @return bool Whether the value is a text line spacing, 1-2.5 unitless or em.
+ * @return bool Whether the value is a text line spacing, 1.5-2.5 unitless or em.
+ *     Tighter values set badges and labels, not paragraphs.
  */
 function wai_is_text_line_height( $value ) {
 	if ( ! preg_match( '/^(\d+(?:\.\d+)?|\.\d+)(em)?$/i', trim( $value ), $matches ) ) {
 		return false;
 	}
 	$ratio = (float) $matches[1];
-	return $ratio >= 1 && $ratio <= 2.5;
+	return $ratio >= 1.5 && $ratio <= 2.5;
 }
 
 /**
@@ -1765,9 +1777,9 @@ function wai_parse_raw_style_declarations( array $raw_declarations ) {
 }
 
 /**
- * Splits inline CSS on the semicolons that end declarations, not those inside
- * quotes, parentheses or comments, such as a quoted font name or a url().
- * Comments stay in the declaration text.
+ * Splits inline CSS on the semicolons that end declarations, as a browser's
+ * CSS tokenizer does: not those inside quotes, comments, an unquoted url(), or
+ * a (), [] or {} block. Comments stay in the declaration text.
  *
  * @param string $style Inline CSS.
  * @return string[] Raw declarations.
@@ -1776,7 +1788,12 @@ function wai_split_style_declarations( $style ) {
 	$declarations = array();
 	$current      = '';
 	$quote        = '';
-	$depth        = 0;
+	$block_closer = array(
+		'(' => ')',
+		'[' => ']',
+		'{' => '}',
+	);
+	$closers      = array(); // What closes each block the scan is inside, innermost last.
 	$length       = strlen( $style );
 	for ( $i = 0; $i < $length; $i++ ) {
 		$char = $style[ $i ];
@@ -1784,24 +1801,40 @@ function wai_split_style_declarations( $style ) {
 			$current .= $char . $style[ ++$i ];
 			continue;
 		}
-		if ( '' === $quote && '/' === $char && '*' === ( $style[ $i + 1 ] ?? '' ) ) {
-			$end      = strpos( $style, '*/', $i + 2 );
-			$end      = false === $end ? $length : $end + 2;
+		if ( '' !== $quote ) {
+			// A line break ends an unterminated string.
+			if ( $char === $quote || "\n" === $char ) {
+				$quote = '';
+			}
+			$current .= $char;
+			continue;
+		}
+
+		$end = null;
+		if ( '/' === $char && '*' === ( $style[ $i + 1 ] ?? '' ) ) {
+			$end = strpos( $style, '*/', $i + 2 );
+			$end = false === $end ? $length : $end + 2;
+		} elseif ( '(' === $char && wai_starts_unquoted_url( $style, $current, $i ) ) {
+			// Quotes and brackets in an unquoted url() are part of the URL.
+			$end = $i + 1;
+			while ( $end < $length && ')' !== $style[ $end ] ) {
+				$end += '\\' === $style[ $end ] ? 2 : 1;
+			}
+			$end = min( $end + 1, $length );
+		}
+		if ( null !== $end ) {
 			$current .= substr( $style, $i, $end - $i );
 			$i        = $end - 1;
 			continue;
 		}
-		if ( '' !== $quote ) {
-			if ( $char === $quote ) {
-				$quote = '';
-			}
-		} elseif ( '"' === $char || "'" === $char ) {
+
+		if ( '"' === $char || "'" === $char ) {
 			$quote = $char;
-		} elseif ( '(' === $char ) {
-			++$depth;
-		} elseif ( ')' === $char && $depth > 0 ) {
-			--$depth;
-		} elseif ( ';' === $char && 0 === $depth ) {
+		} elseif ( isset( $block_closer[ $char ] ) ) {
+			$closers[] = $block_closer[ $char ];
+		} elseif ( $closers && end( $closers ) === $char ) {
+			array_pop( $closers );
+		} elseif ( ';' === $char && ! $closers ) {
 			$declarations[] = $current;
 			$current        = '';
 			continue;
@@ -1810,6 +1843,17 @@ function wai_split_style_declarations( $style ) {
 	}
 	$declarations[] = $current;
 	return $declarations;
+}
+
+/**
+ * @param string $style   Inline CSS.
+ * @param string $current The declaration text before the parenthesis.
+ * @param int    $offset  Offset of an opening parenthesis in $style.
+ * @return bool Whether the parenthesis opens a url() whose URL is not quoted.
+ */
+function wai_starts_unquoted_url( $style, $current, $offset ) {
+	return preg_match( '/(?<![\w\-\\\\\x80-\xff])url$/i', $current )
+		&& ! preg_match( '/\G\s*+["\']/', $style, $unused, 0, $offset + 1 );
 }
 
 /**

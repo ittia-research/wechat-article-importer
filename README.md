@@ -47,12 +47,12 @@ Typography that the site theme owns is removed by `wai_remove_site_typography()`
 
 - `font-family` is always removed.
 - `font-size` is removed when it is a body text size (14-18px, or the same in pt) and no ancestor keeps a size. Caption, credit and display sizes stay.
-- `line-height` is removed when it is text spacing (1-2.5, unitless or em), the element sets no `height` or `min-height`, and neither the element nor an ancestor keeps a size or a line-height. Image wrappers with `line-height: 0`, centred badges and tall label bands keep theirs.
-- A `font` shorthand stays and counts as a kept size and line-height. A size or line-height declared twice in one style stays.
+- `line-height` is removed when it is text spacing (1.5-2.5, unitless or em), the element sets no `height` or `min-height`, and neither the element nor an ancestor keeps a size or a line-height. Image wrappers with `line-height: 0`, tight badges, centred labels and tall bands keep theirs.
+- A style with a `font` shorthand keeps all of its typography, because the shorthand sets the family, size and line-height itself; its children count as keeping a size and line-height. A size or line-height declared twice in one style stays.
 
-Letter spacing and justified alignment stay, because they suit Chinese text; a theme can reset them for other languages. The function works on one style attribute plus what its ancestors keep, so a one-time backfill of existing posts can reuse it with an HTML walker that tracks ancestors.
+Letter spacing and justified alignment stay, because they suit Chinese text; a theme can override them for other languages with `!important` rules. The function works on one style attribute plus what its ancestors keep, so a one-time backfill of existing posts can reuse it with an HTML walker that tracks ancestors.
 
-The style allowlist splits inline CSS on every semicolon, so quotes, parentheses or comments cannot hide a disallowed declaration inside an allowed one. Later steps parse the cleaned CSS as a browser does, keeping quoted font names and `url()` values whole.
+The style allowlist splits inline CSS on every semicolon, so quotes, parentheses or comments cannot hide a disallowed declaration inside an allowed one. Later steps split the cleaned CSS into the declarations a browser sees, keeping strings, comments, unquoted `url()` values and `()`, `[]` and `{}` blocks whole, so the typography rule removes only whole declarations.
 
 Media dedupe now uses source-agnostic attachment content hashes stored in `_wai_attachment_content_md5`. WeChat imports download and verify image bytes, compute the MD5, then reuse any existing attachment with the same canonical hash before creating a new media file. New or regenerated attachments also receive the same canonical MD5 metadata; legacy source-hash keys such as `_iafw_source_md5` and `_wai_source_md5` are no longer read or written. Because the MD5 metadata can exist on manual uploads too, newly uploaded importer media are additionally marked with `_wai_imported_attachment` and `_wai_source_image_url`. Existing attachments reused by dedupe are not marked as importer-created media.
 

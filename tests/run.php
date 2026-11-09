@@ -467,6 +467,9 @@ assert_true( 'letter-spacing:0.6px;text-align:justify' === $typography['style'],
 assert_true( ! $typography['inherited']['font-size'], 'a removed body size is not passed on as a kept ancestor size' );
 
 assert_true( '' === wai_remove_site_typography( 'font-size:12pt', $no_inherited )['style'], 'body size in points is removed' );
+assert_true( '' === wai_remove_site_typography( 'font-size:14px', $no_inherited )['style'], 'the smallest body size is removed' );
+assert_true( '' === wai_remove_site_typography( 'font-size:18px', $no_inherited )['style'], 'the largest body size is removed' );
+assert_true( 'font-size:19px' === wai_remove_site_typography( 'font-size:19px', $no_inherited )['style'], 'a size above body text stays' );
 assert_true( 'font-size:13px' === wai_remove_site_typography( 'font-size:13px', $no_inherited )['style'], 'caption size stays' );
 assert_true( 'font-size:10pt' === wai_remove_site_typography( 'font-size:10pt', $no_inherited )['style'], 'small size in points stays' );
 assert_true( 'font-size:24px' === wai_remove_site_typography( 'font-size:24px', $no_inherited )['style'], 'display size stays' );
@@ -478,6 +481,11 @@ assert_true( 'font-size:15px' === wai_remove_site_typography( 'font-size:15px', 
 assert_true( 'color:red' === wai_remove_site_typography( 'line-height:2.2;color:red', $no_inherited )['style'], 'text line spacing is removed' );
 assert_true( '' === wai_remove_site_typography( 'line-height:2em', $no_inherited )['style'], 'text line spacing in em is removed' );
 assert_true( 'line-height:2em;height:2em' === wai_remove_site_typography( 'line-height:2em;height:2em', $no_inherited )['style'], 'line spacing that centres text in a fixed height stays' );
+assert_true( 'line-height:2;min-height:40px' === wai_remove_site_typography( 'line-height:2;min-height:40px', $no_inherited )['style'], 'line spacing that centres text in a minimum height stays' );
+assert_true( '' === wai_remove_site_typography( 'line-height:1.5', $no_inherited )['style'], 'the tightest text line spacing is removed' );
+assert_true( '' === wai_remove_site_typography( 'line-height:2.5', $no_inherited )['style'], 'the loosest text line spacing is removed' );
+assert_true( 'line-height:1;padding:2px 8px;background-color:#eee' === wai_remove_site_typography( 'line-height:1;padding:2px 8px;background-color:#eee', $no_inherited )['style'], 'tight badge line spacing stays' );
+assert_true( 'line-height:1.4' === wai_remove_site_typography( 'line-height:1.4', $no_inherited )['style'], 'line spacing below the text range stays' );
 assert_true( 'line-height:4' === wai_remove_site_typography( 'line-height:4', $no_inherited )['style'], 'band line spacing outside the text range stays' );
 assert_true( 'font-size:12px;line-height:1.5' === wai_remove_site_typography( 'font-size:12px;line-height:1.5', $no_inherited )['style'], 'line spacing paired with a kept size stays' );
 assert_true( 'line-height:1.6' === wai_remove_site_typography( 'line-height:1.6', $inside_caption )['style'], 'line spacing under an ancestor that keeps a size stays' );
@@ -492,9 +500,25 @@ assert_true( $untouched === wai_remove_site_typography( $untouched, $no_inherite
 assert_true( 'color:red' === wai_remove_site_typography( "font-family:'A;B', serif;color:red", $no_inherited )['style'], 'a semicolon inside a quoted font name does not split the declaration' );
 assert_true( array( 'background:url("a;b")', 'color:red' ) === wai_split_style_declarations( 'background:url("a;b");color:red' ), 'a semicolon inside url() does not split the declaration' );
 assert_true( array( 'color:red/*(";*/', 'font-family:x' ) === wai_split_style_declarations( 'color:red/*(";*/;font-family:x' ), 'quotes, parentheses and semicolons inside a comment do not hide the next declaration' );
+assert_true( array( 'font-family:a\;b', 'color:red' ) === wai_split_style_declarations( 'font-family:a\;b;color:red' ), 'an escaped semicolon does not split the declaration' );
+assert_true( array( 'font-family:x[;width:9999px;height:9999px]' ) === wai_split_style_declarations( 'font-family:x[;width:9999px;height:9999px]' ), 'semicolons inside a [] block do not split the declaration' );
+assert_true( array( 'color:red', 'font-family:a{;width:9999px;}' ) === wai_split_style_declarations( 'color:red;font-family:a{;width:9999px;}' ), 'semicolons inside a {} block do not split the declaration' );
+assert_true( array( 'color:x(];width:1px' ) === wai_split_style_declarations( 'color:x(];width:1px' ), 'a bracket of another kind does not close a parenthesis' );
+assert_true( array( 'color:red)', 'width:1px' ) === wai_split_style_declarations( 'color:red);width:1px' ), 'a bracket that closes no block is plain text' );
+assert_true(
+	array( "background-image:url(https://mmbiz.qpic.cn/a'b)", 'font-size:16px', 'line-height:2' ) === wai_split_style_declarations( "background-image:url(https://mmbiz.qpic.cn/a'b);font-size:16px;line-height:2" ),
+	'a quote inside an unquoted url() does not start a string'
+);
+assert_true( array( 'background:url(a/*)', 'color:red' ) === wai_split_style_declarations( 'background:url(a/*);color:red' ), 'a comment marker inside an unquoted url() does not start a comment' );
+assert_true( array( 'background:myurl(a"b);color:red' ) === wai_split_style_declarations( 'background:myurl(a"b);color:red' ), 'only url() itself holds an unquoted URL' );
+assert_true( '' === wai_remove_site_typography( 'font-family:x[;width:9999px;height:9999px]', $no_inherited )['style'], 'a declaration that hides others in a block is removed whole, so none of it starts to apply' );
+assert_true( 'background:x[;font-family:a];width:100px' === wai_remove_site_typography( 'background:x[;font-family:a];width:100px', $no_inherited )['style'], 'a font family inside another declaration\'s block is not a declaration' );
+assert_true( "background-image:url(https://mmbiz.qpic.cn/a'b)" === wai_remove_site_typography( "background-image:url(https://mmbiz.qpic.cn/a'b);font-size:16px;line-height:2", $no_inherited )['style'], 'a quote inside an unquoted url() does not hide the body size and line spacing' );
 
+foreach ( array( 'font:13px serif;font-size:16px', 'font:13px Georgia;font-family:Optima-Regular', 'font-family:x;font:13px/1.6 serif;line-height:2' ) as $font_style ) {
+	assert_true( $font_style === wai_remove_site_typography( $font_style, $no_inherited )['style'], 'a style with a font shorthand keeps its typography: ' . $font_style );
+}
 $font_shorthand = wai_remove_site_typography( 'font:13px/1.6 serif', $no_inherited );
-assert_true( 'font:13px/1.6 serif' === $font_shorthand['style'], 'the font shorthand stays' );
 assert_true( $font_shorthand['inherited']['font-size'] && $font_shorthand['inherited']['line-height'], 'the font shorthand counts as a kept size and line spacing' );
 assert_true( 'font-size:16px;line-height:2' === wai_remove_site_typography( 'font-size:16px;line-height:2', $font_shorthand['inherited'] )['style'], 'body size and line spacing under a font shorthand stay' );
 assert_true( 'line-height:0;line-height:1.75' === wai_remove_site_typography( 'line-height:0;line-height:1.75', $no_inherited )['style'], 'a repeated line-height stays' );
@@ -504,6 +528,7 @@ $smuggled = wai_prepare_import_content(
 	'<p style="color:red/*(*/;position:fixed;top:0;z-index:99999">overlay</p>'
 	. '<p style="color:red/*&quot;*/;position:fixed">overlay</p>'
 	. '<p style="background-image:url(https://mmbiz.qpic.cn/a&quot;b);position:fixed">overlay</p>'
+	. '<p style="background-image:url(https://mmbiz.qpic.cn/a/*);position:fixed;z-index:99999;*/">overlay</p>'
 );
 assert_not_contains( 'position', $smuggled, 'comments, quotes and parentheses cannot carry a disallowed property past the style allowlist' );
 assert_not_contains( 'z-index', $smuggled, 'a comment cannot carry a disallowed stacking order past the style allowlist' );
