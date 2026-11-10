@@ -61,6 +61,7 @@ Media files newly uploaded by this importer get `_wai_imported_attachment=1` plu
 * Blank-line sections now keep an editor-stable marker, so saving the post in the classic editor no longer removes them.
 * Blank paragraphs and sections with several line breaks keep all their lines on the page, instead of collapsing to one.
 * Fixed the Start Import button not being disabled, and not showing progress, while an import runs.
+* Imported content loads images only from WeChat media or this site's uploads. Images from other hosts are removed, and inline CSS can no longer reach another host through CSS escapes, `image-set()` and similar functions, or a URL that only looked like an uploads path.
 
 = 0.2.3 =
 * Added a plugin-specific import capability that is granted to administrators and editors automatically, so editor accounts can see and run the importer without receiving broad site settings permissions.

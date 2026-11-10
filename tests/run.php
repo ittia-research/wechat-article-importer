@@ -95,7 +95,8 @@ function get_attached_file( $attachment_id ) {
 }
 function wp_upload_dir() {
 	return array(
-		'path' => $GLOBALS['wai_test_upload_dir'] ?? sys_get_temp_dir(),
+		'path'    => $GLOBALS['wai_test_upload_dir'] ?? sys_get_temp_dir(),
+		'baseurl' => 'https://example.test/wp-content/uploads',
 	);
 }
 function wp_unique_filename( $dir, $filename ) {
@@ -437,6 +438,39 @@ assert_not_contains( '<path', strtolower( $unsafe ), 'inline SVG child source is
 $safe_style = wai_clean_style_attribute( 'background-image: url(' . $source_image . '); color: red; width: 10px;' );
 assert_contains( 'background-image:url(' . $source_image . ')', $safe_style, 'safe WeChat CSS image URLs are retained for replacement' );
 assert_contains( 'color:red', $safe_style, 'safe color style survives CSS sanitizer' );
+
+$remote_styles = array(
+	'background-image:url(https://tracker.example/p.gif)',
+	'background-image:url("https://tracker.example/p.gif")',
+	'background-image:URL( https://tracker.example/p.gif )',
+	'background-image:url(https://tracker.example/p.gif',
+	'background:linear-gradient(red, blue), url(https://tracker.example/p.gif)',
+	'background-image:url(https://tracker.example/wp-content/uploads/p.gif)',
+	'background-image:url(//tracker.example/p.gif)',
+	'background-image:\75 rl(https://tracker.example/p.gif)',
+	'background-image:\000075rl(https://tracker.example/p.gif)',
+	'background-image:u\72l(https://tracker.example/p.gif)',
+	'background-image:image-set("https://tracker.example/p.gif" 1x)',
+	'background-image:-webkit-image-set("https://tracker.example/p.gif" 1x)',
+	'background-image:cross-fade(url(' . $source_image . '), "https://tracker.example/p.gif", 50%)',
+	'background-image:image("https://tracker.example/p.gif")',
+	'width:expression(alert(1))',
+);
+foreach ( $remote_styles as $remote_style ) {
+	assert_true( 'color:red' === wai_clean_style_attribute( $remote_style . ';color:red' ), 'style that may load a remote resource is dropped: ' . $remote_style );
+}
+$kept_functions = 'color:rgba(0, 0, 0, 0.5);transform:translate3d(0px, 0px, 0px) rotateY(180deg) perspective(0px);-webkit-transform:scale(1.2);width:calc(100% - 20px);background-image:-webkit-linear-gradient(top, rgb(255, 0, 0), transparent);background:url(' . $local_bg . ') center/cover;color:var(--weui-FG-0)';
+assert_true( $kept_functions === wai_clean_style_attribute( $kept_functions ), 'colour, size, gradient and transform functions and local url() are kept' );
+
+$remote_images = wai_prepare_import_content(
+	'<p>a<img src="https://tracker.example/q.gif" alt="">b<img src="https://tracker.example/wp-content/uploads/q.gif">c<img src="//tracker.example/q.gif">d</p>'
+	. '<p><img src="' . $local_image . '" alt="local"><img src="' . $source_image . '" alt="wechat"><img data-src="https://mmbiz.qpic.cn/unprocessed/0" src="" alt="failed"></p>'
+);
+assert_not_contains( 'tracker.example', $remote_images, 'images from other hosts are not stored' );
+assert_contains( '<p>abcd</p>', $remote_images, 'images from other hosts are removed, with the text around them kept' );
+assert_contains( '<img alt="failed">', $remote_images, 'an image that could not be downloaded keeps its placeholder' );
+assert_contains( '<img src="' . $local_image . '" alt="local">', $remote_images, 'local upload images are kept' );
+assert_contains( '<img src="' . htmlspecialchars( $source_image, ENT_QUOTES ) . '" alt="wechat">', $remote_images, 'unprocessed WeChat images are kept' );
 
 $urls = wai_collect_image_urls( $fixture, 'https://mmbiz.qpic.cn/cover/0?wx_fmt=jpeg' );
 assert_true( in_array( $source_image, $urls, true ), 'collector finds img data-src URL' );

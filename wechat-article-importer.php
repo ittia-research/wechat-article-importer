@@ -342,17 +342,34 @@ function wai_is_allowed_image_url( $url ) {
 }
 
 /**
+ * Whether a URL is in this site's uploads, on the same host and below the same path.
+ *
  * @param string $url URL.
  * @return bool
  */
 function wai_is_local_upload_url( $url ) {
-	$parts = wai_parse_url( $url );
-	if ( ! is_array( $parts ) ) {
+	$upload_dir = wp_upload_dir( null, false );
+	$base       = wai_parse_url( (string) ( $upload_dir['baseurl'] ?? '' ) );
+	$parts      = wai_parse_url( (string) $url );
+	if ( ! is_array( $base ) || ! is_array( $parts ) || empty( $base['host'] ) || empty( $parts['host'] ) ) {
 		return false;
 	}
 
-	$path = (string) ( $parts['path'] ?? '' );
-	return false !== strpos( $path, '/wp-content/uploads/' );
+	$base_path = rtrim( (string) ( $base['path'] ?? '' ), '/' ) . '/';
+	return wai_normalize_host( $parts['host'] ) === wai_normalize_host( $base['host'] )
+		&& ( $parts['port'] ?? null ) === ( $base['port'] ?? null )
+		&& wai_str_starts_with( (string) ( $parts['path'] ?? '' ), $base_path );
+}
+
+/**
+ * Whether stored content may load an image from a URL: WeChat media, which the
+ * import replaces with local copies, or this site's uploads.
+ *
+ * @param string $url Normalized URL.
+ * @return bool
+ */
+function wai_is_allowed_image_source( $url ) {
+	return '' !== $url && ( wai_is_allowed_image_url( $url ) || wai_is_local_upload_url( $url ) );
 }
 
 function wai_importer_page_html() {
@@ -1027,6 +1044,17 @@ function wai_is_placeholder_svg( DOMElement $svg ) {
  */
 function wai_clean_dom_tree( DOMDocument $doc ) {
 	$xpath = new DOMXPath( $doc );
+
+	// An article's own images are WeChat media, which the import copies, so an
+	// image from any other host is removed. One without a usable source stays as
+	// the placeholder of an image that could not be downloaded.
+	foreach ( iterator_to_array( $xpath->query( '//img[@src]' ) ) as $img ) {
+		$src = wai_normalize_url_attribute( $img->getAttribute( 'src' ) );
+		if ( '' !== $src && ! wai_is_allowed_image_source( $src ) ) {
+			$img->parentNode->removeChild( $img );
+		}
+	}
+
 	$nodes = $xpath->query( '//*' );
 	foreach ( iterator_to_array( $nodes ) as $node ) {
 		wai_clean_element_attributes( $node );
@@ -1458,27 +1486,36 @@ function wai_is_allowed_style_property( $property ) {
 }
 
 /**
+ * Cleans one CSS value, or returns an empty string to drop the declaration.
+ *
+ * A value may only load an image through url(), from WeChat media or this site's
+ * uploads. CSS escapes can spell any function name, url( included, so a value
+ * with a backslash is dropped, and so is a call to any function outside
+ * wai_is_allowed_style_function(), since image-set() and its kind load URLs
+ * without url().
+ *
  * @param string $value CSS value.
  * @return string
  */
 function wai_clean_style_value( $value ) {
 	$value = trim( preg_replace( '/\s+/', ' ', (string) $value ) );
-	if ( '' === $value ) {
+	if ( '' === $value || preg_match( '/[\\\\<>]/', $value ) ) {
 		return '';
 	}
 
-	$compact = preg_replace( '/[\x00-\x20]+/', '', strtolower( $value ) );
-	if ( preg_match( '/(?:expression|behavior|-moz-binding|binding|javascript|vbscript|data)\s*[:(]/i', $compact ) || false !== strpos( $value, '<' ) || false !== strpos( $value, '>' ) ) {
-		return '';
+	// A function name is the run of name characters, ASCII or not, right before "(".
+	preg_match_all( '/((?:[a-z0-9_-]|[^\x00-\x7f])*)\(/i', $value, $calls );
+	foreach ( $calls[1] as $name ) {
+		if ( '' !== $name && ! wai_is_allowed_style_function( $name ) ) {
+			return '';
+		}
 	}
 
-	if ( preg_match_all( '/url\(([^)]*)\)/i', $value, $matches ) ) {
+	// The closing parenthesis is optional: an unclosed url( runs to the end of the value.
+	if ( preg_match_all( '/url\(([^)]*)\)?/i', $value, $matches ) ) {
 		foreach ( $matches[1] as $index => $raw_url ) {
 			$clean_url = wai_normalize_url_attribute( trim( $raw_url, " \t\n\r\0\x0B'\"" ) );
-			if ( '' === $clean_url ) {
-				return '';
-			}
-			if ( ! wai_is_allowed_image_url( $clean_url ) && ! wai_is_local_upload_url( $clean_url ) ) {
+			if ( ! wai_is_allowed_image_source( $clean_url ) ) {
 				return '';
 			}
 			$value = str_replace( $matches[0][ $index ], 'url(' . $clean_url . ')', $value );
@@ -1486,6 +1523,65 @@ function wai_clean_style_value( $value ) {
 	}
 
 	return $value;
+}
+
+/**
+ * Whether a CSS function only computes a colour, size, gradient or transform, or is
+ * url(), whose URL wai_clean_style_value() checks.
+ *
+ * @param string $name Function name, with or without a vendor prefix.
+ * @return bool
+ */
+function wai_is_allowed_style_function( $name ) {
+	$allowed = array(
+		'url',
+		'var',
+		'calc',
+		'min',
+		'max',
+		'clamp',
+		'rgb',
+		'rgba',
+		'hsl',
+		'hsla',
+		'hwb',
+		'lab',
+		'lch',
+		'oklab',
+		'oklch',
+		'color',
+		'color-mix',
+		'linear-gradient',
+		'radial-gradient',
+		'conic-gradient',
+		'repeating-linear-gradient',
+		'repeating-radial-gradient',
+		'repeating-conic-gradient',
+		'matrix',
+		'matrix3d',
+		'perspective',
+		'rotate',
+		'rotate3d',
+		'rotatex',
+		'rotatey',
+		'rotatez',
+		'scale',
+		'scale3d',
+		'scalex',
+		'scaley',
+		'scalez',
+		'skew',
+		'skewx',
+		'skewy',
+		'translate',
+		'translate3d',
+		'translatex',
+		'translatey',
+		'translatez',
+	);
+
+	$name = preg_replace( '/^-(?:webkit|moz|ms|o)-/', '', strtolower( (string) $name ) );
+	return in_array( $name, $allowed, true );
 }
 
 /**
