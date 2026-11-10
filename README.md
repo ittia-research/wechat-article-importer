@@ -61,6 +61,13 @@ WeChat also wraps most articles in one top-level section with `padding: 0 10px` 
 
 The function works on one element's tag and style, so the importer applies it to the direct children of its parsed fragment, and a one-time backfill of existing posts can apply it to the direct children of a stored post with an HTML processor.
 
+Some WeChat templates give every paragraph, blank-line markers included, `margin: 0 0 -5px`. On the site that sets lines in consecutive paragraphs closer together than the lines a paragraph wraps onto. `wai_remove_paragraph_pull()` sets a paragraph's negative top or bottom margin to zero:
+
+- Only `p` elements change. A paragraph holds lines of text, so pulling it into a neighbour always sets lines closer than their spacing. WeChat overlaps decorations with sections, which keep their negative margins.
+- The `margin` shorthand and the `margin-top` and `margin-bottom` longhands are read; horizontal margins stay, so `margin: -5px 10px` becomes `margin: 0 10px`. Only plain lengths can be judged, so a declaration with `calc()`, `var()` or `!important` stays as it is.
+
+Like the inset rule, it works on one element's tag and style, so a one-time backfill can apply it to every paragraph of a stored post.
+
 The style allowlist splits inline CSS on every semicolon, so quotes, parentheses or comments cannot hide a disallowed declaration inside an allowed one. Later steps split the cleaned CSS into the declarations a browser sees, keeping strings, comments, unquoted `url()` values and `()`, `[]` and `{}` blocks whole, so the typography rule removes only whole declarations.
 
 Stored content loads images only from WeChat media, which the import replaces with local copies, or from this site's uploads, on the same host and below the uploads path. An `<img>` with any other source is removed. In inline CSS, `url()` with such a URL is the only way to load an image: a value with a CSS escape is dropped, because an escape can spell any function name, and so is a call to any function other than `url()` and the colour, size, gradient and transform functions, because `image-set()` and similar functions take URLs as plain strings.
@@ -151,7 +158,7 @@ binaries:
 xgettext --from-code=UTF-8 --language=PHP \
   --keyword=__ --keyword=_e --keyword=esc_html_e --keyword=esc_attr_e \
   --add-comments=translators: \
-  --package-name='WeChat Article Importer' --package-version='0.3.1' \
+  --package-name='WeChat Article Importer' --package-version='0.3.2' \
   --msgid-bugs-address='https://github.com/ittia-research' \
   --copyright-holder='ITTIA' \
   --output=languages/wechat-article-importer.pot \

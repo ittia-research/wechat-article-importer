@@ -759,6 +759,50 @@ assert_contains( '<section>text</section>', wai_prepare_import_content( '<sectio
 assert_true( '<p style="padding:0px 10px">a</p>' === wai_prepare_import_content( '<p style="padding: 0px 10px;">a</p>' ), 'a lone top-level paragraph keeps its padding' );
 assert_true( '<section><section style="padding:0px 10px">a</section></section>' === wai_prepare_import_content( '<section style="padding: 0px 10px;"><section style="padding: 0px 10px;">a</section></section>' ), 'only the top-level wrapper changes' );
 
+// Paragraph pull: a negative top or bottom margin on a paragraph becomes zero.
+$pull_cases = array(
+	// The margin shorthand, one to four values: top and bottom go to zero, left and right stay.
+	'margin:0px 0px -5px'                                              => 'margin:0px 0px 0',
+	'margin: 0px 0px -5px; white-space: normal; padding: 0px;'         => 'margin:0px 0px 0;white-space:normal;padding:0px',
+	'margin:-5px'                                                      => 'margin:0 -5px',
+	'margin:-5px 10px'                                                 => 'margin:0 10px',
+	'margin:-5px auto'                                                 => 'margin:0 auto',
+	'margin:5px 0 -5px'                                                => 'margin:5px 0 0',
+	'margin:-1px 2px -3px 4px'                                         => 'margin:0 2px 0 4px',
+	'margin:-.5em 0 0'                                                 => 'margin:0 0',
+	// Longhands.
+	'margin-bottom:-5px'                                               => 'margin-bottom:0',
+	'color:red;margin-top:-0.5em'                                      => 'color:red;margin-top:0',
+	'margin-top:-2%;margin-bottom:-10px;margin-left:-3px'              => 'margin-top:0;margin-bottom:0;margin-left:-3px',
+	// Case and spacing do not matter.
+	'MARGIN: 0PX 0PX -5PX'                                             => 'margin:0PX 0PX 0',
+);
+foreach ( $pull_cases as $style => $expected ) {
+	assert_true( $expected === wai_remove_paragraph_pull( 'p', $style ), 'paragraph pull: [' . $style . '] becomes [' . $expected . ']' );
+}
+foreach ( array( 'margin:0 0 -5px !important', 'margin-bottom:-5px!important', 'margin-bottom:calc(0px - 5px)', 'margin:0 0 calc(0px - 5px)', 'margin:0 0 var(--pull)', 'margin:0 0 -5px 0 1px', 'margin-bottom:-webkit-calc(-5px)', 'margin-bottom:-5', 'margin:0 0 -5', 'margin-bottom:-5foo', 'margin-bottom:-5deg', 'margin:5 0 -5px' ) as $unjudged ) {
+	assert_true( $unjudged === wai_remove_paragraph_pull( 'p', $unjudged ), 'a margin that is not a plain length stays: ' . $unjudged );
+}
+foreach ( array( 'margin:0', 'margin:0 -5px', 'margin-left:-5px', 'margin-right:-1em', 'margin-bottom:5px', 'margin:-0px 0', 'margin-top:-0', 'letter-spacing: 1px; color: red', '' ) as $nothing_to_remove ) {
+	assert_true( $nothing_to_remove === wai_remove_paragraph_pull( 'p', $nothing_to_remove ), 'a style that pulls nothing is returned as given: [' . $nothing_to_remove . ']' );
+}
+foreach ( array( 'section', 'div', 'span', 'h2', 'li', 'img' ) as $not_a_paragraph ) {
+	assert_true( 'margin-top:-1em' === wai_remove_paragraph_pull( $not_a_paragraph, 'margin-top:-1em' ), 'a ' . $not_a_paragraph . ' is not a paragraph, so its negative margin stays' );
+}
+assert_true( 'margin:0px 0px 0' === wai_remove_paragraph_pull( 'P', 'margin:0px 0px -5px' ), 'the tag name is not case sensitive' );
+
+$pull_import = wai_prepare_import_content(
+	'<section style="text-align: justify;">'
+	. '<p style="margin: 0px 0px -5px; padding: 0px;"><span style="letter-spacing: 0.6px;">first line</span></p>'
+	. '<p style="margin: 0px 0px -5px; padding: 0px;"><span style="letter-spacing: 0.6px;">second line</span></p>'
+	. '<p style="margin: 0px 0px -5px;"><span style="display: inline-block; width: 0; height: 0; overflow: hidden; line-height: 0; vertical-align: top;"> </span></p>'
+	. '<section style="margin-top: -1em; border-top: 1px solid #04743d;"><span style="display: inline-block; width: 0; height: 0; overflow: hidden; line-height: 0; vertical-align: top;"> </span></section>'
+	. '</section>'
+);
+assert_contains( '<p style="margin:0px 0px 0;padding:0px"><span style="letter-spacing:0.6px">first line</span></p><p style="margin:0px 0px 0;padding:0px"><span style="letter-spacing:0.6px">second line</span></p>', $pull_import, 'an import stops paragraphs from pulling into each other' );
+assert_contains( '<p style="margin:0px 0px 0">', $pull_import, 'a blank-line paragraph stops pulling too' );
+assert_contains( 'margin-top:-1em', $pull_import, 'a decorative section keeps its negative margin' );
+
 $html = '<html><head><meta property="og:image" content="https://mmbiz.qpic.cn/cover/0?wx_fmt=jpeg" /></head><body><h1 id="activity-name"> 今日谷雨，宜开封 </h1><div class="rich_media_content" id="js_content">' . $fixture . '</div><script>var ct = "1713625275";</script></body></html>';
 $article = wai_parse_wechat_article_html( $html );
 assert_true( '今日谷雨，宜开封' === $article['title'], 'parser extracts title' );

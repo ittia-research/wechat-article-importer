@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       WeChat Article Importer
  * Description:       Import WeChat Official Account articles into WordPress drafts, including content, featured images, and inline images.
- * Version:           0.3.1
+ * Version:           0.3.2
  * Author:            ITTIA
  * Author URI:        https://github.com/ittia-research
  * License:           GPLv2
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-const WAI_VERSION = '0.3.1';
+const WAI_VERSION = '0.3.2';
 const WAI_SOURCE_URL_META = '_wai_import_source_url';
 const WAI_CONTENT_HASH_META = '_wai_import_content_hash';
 const WAI_ATTACHMENT_CONTENT_MD5_META = '_wai_attachment_content_md5';
@@ -802,6 +802,7 @@ function wai_prepare_import_content( $content_html, $processed_images = array() 
 	wai_merge_adjacent_equivalent_inline_elements( $doc );
 	wai_normalize_blank_blocks( $doc );
 	wai_remove_wrapper_side_inset_from_tree( $doc );
+	wai_remove_paragraph_pull_from_tree( $doc );
 
 	$content = wai_get_body_inner_html( $doc );
 	if ( ! empty( $processed_images ) ) {
@@ -1402,6 +1403,102 @@ function wai_remove_wrapper_side_inset( $tag, $style ) {
 		return $style;
 	}
 	return implode( ';', $kept );
+}
+
+/**
+ * Removes the negative vertical margins that pull paragraphs into each other.
+ *
+ * @param DOMDocument $doc Document.
+ * @return void
+ */
+function wai_remove_paragraph_pull_from_tree( DOMDocument $doc ) {
+	foreach ( iterator_to_array( $doc->getElementsByTagName( 'p' ) ) as $paragraph ) {
+		$style     = $paragraph->getAttribute( 'style' );
+		$new_style = wai_remove_paragraph_pull( $paragraph->tagName, $style );
+		if ( $new_style !== $style ) {
+			$paragraph->setAttribute( 'style', $new_style );
+		}
+	}
+}
+
+/**
+ * Removes a negative top or bottom margin from a paragraph.
+ *
+ * A WeChat template gives every paragraph, blank-line markers included,
+ * `margin: 0 0 -5px` to tighten its rhythm. On the site that sets lines in
+ * consecutive paragraphs closer together than the lines a paragraph wraps onto,
+ * which reads as a mistake. A paragraph holds lines of text, so pulling it into
+ * a neighbour always sets lines closer than their spacing. WeChat overlaps
+ * decorations with sections, not paragraphs, so other elements keep their
+ * negative margins. The caller decides which element is a paragraph, since the
+ * rule is shared by a DOM walk at import time and a tag processor walk over
+ * stored posts.
+ *
+ * A negative top or bottom margin becomes zero, in the margin shorthand or a
+ * longhand. Horizontal margins stay. Only plain lengths can be judged, so a
+ * declaration with calc(), var() or !important stays as it is.
+ *
+ * @param string $tag   Tag name of the element.
+ * @param string $style Inline CSS of the element.
+ * @return string The CSS with those margins at zero, or the style as given when none is negative.
+ */
+function wai_remove_paragraph_pull( $tag, $style ) {
+	if ( 'p' !== strtolower( $tag ) ) {
+		return $style;
+	}
+
+	$changed = false;
+	$kept    = array();
+	foreach ( wai_parse_style_declarations( $style ) as $declaration ) {
+		$property = $declaration['property'];
+		$value    = $declaration['value'];
+
+		if ( in_array( $property, array( 'margin-top', 'margin-bottom' ), true ) && wai_is_negative_length( $value ) ) {
+			$value   = '0';
+			$changed = true;
+		} elseif ( 'margin' === $property ) {
+			// Top, right, bottom and left; a missing side copies the opposite one.
+			$sides     = preg_split( '/\s+/', $value );
+			$judgeable = count( $sides ) <= 4;
+			foreach ( $sides as $side ) {
+				$judgeable = $judgeable && ( wai_is_plain_length( $side ) || 'auto' === strtolower( $side ) );
+			}
+			if ( $judgeable ) {
+				$top    = $sides[0];
+				$right  = $sides[1] ?? $top;
+				$bottom = $sides[2] ?? $top;
+				$left   = $sides[3] ?? $right;
+				if ( wai_is_negative_length( $top ) || wai_is_negative_length( $bottom ) ) {
+					$top     = wai_is_negative_length( $top ) ? '0' : $top;
+					$bottom  = wai_is_negative_length( $bottom ) ? '0' : $bottom;
+					$value   = implode( ' ', $left === $right ? ( $top === $bottom ? array( $top, $right ) : array( $top, $right, $bottom ) ) : array( $top, $right, $bottom, $left ) );
+					$changed = true;
+				}
+			}
+		}
+
+		$kept[] = $property . ':' . $value;
+	}
+
+	return $changed ? implode( ';', $kept ) : $style;
+}
+
+/**
+ * @param string $value CSS value.
+ * @return bool Whether the value is a plain length: a number with a length unit or
+ *     a percentage, or a unitless zero. A browser ignores a margin of `-5` or `-5deg`,
+ *     so those are not lengths to correct.
+ */
+function wai_is_plain_length( $value ) {
+	return 1 === preg_match( '/^[-+]?(?:(?:\d+(?:\.\d+)?|\.\d+)(?:px|em|rem|ex|ch|vw|vh|vmin|vmax|pt|pc|cm|mm|in|q|%)|0+(?:\.0+)?)$/i', $value );
+}
+
+/**
+ * @param string $value CSS value.
+ * @return bool Whether the value is a plain negative length, such as -5px or -.5em.
+ */
+function wai_is_negative_length( $value ) {
+	return wai_is_plain_length( $value ) && (float) $value < 0;
 }
 
 /**
