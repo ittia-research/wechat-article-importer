@@ -95,7 +95,8 @@ function get_attached_file( $attachment_id ) {
 }
 function wp_upload_dir() {
 	return array(
-		'path' => $GLOBALS['wai_test_upload_dir'] ?? sys_get_temp_dir(),
+		'path'    => $GLOBALS['wai_test_upload_dir'] ?? sys_get_temp_dir(),
+		'baseurl' => 'https://example.test/wp-content/uploads',
 	);
 }
 function wp_unique_filename( $dir, $filename ) {
@@ -368,10 +369,10 @@ assert_true(
 );
 
 $styled_split_clean = wai_prepare_import_content(
-	'<p><span style="font-size: 15px; color: red;">Hello </span><span style="font-size:15px;color:red">world</span></p>'
+	'<p><span style="font-size: 13px; color: red;">Hello </span><span style="font-size:13px;color:red">world</span></p>'
 );
-assert_contains( '<span style="font-size:15px;color:red">Hello world</span>', $styled_split_clean, 'adjacent equivalent styled spans are merged' );
-assert_not_contains( '</span><span style="font-size:15px;color:red">', $styled_split_clean, 'equivalent styled spans are not left split' );
+assert_contains( '<span style="font-size:13px;color:red">Hello world</span>', $styled_split_clean, 'adjacent equivalent styled spans are merged' );
+assert_not_contains( '</span><span style="font-size:13px;color:red">', $styled_split_clean, 'equivalent styled spans are not left split' );
 
 $box_sizing_noise_clean = wai_prepare_import_content(
 	'<p><span style="color: #04743d; box-sizing: border-box;">官方网站</span><span style="color:#04743d;box-sizing:border-box">www.foodthink.cn</span></p>'
@@ -438,6 +439,39 @@ $safe_style = wai_clean_style_attribute( 'background-image: url(' . $source_imag
 assert_contains( 'background-image:url(' . $source_image . ')', $safe_style, 'safe WeChat CSS image URLs are retained for replacement' );
 assert_contains( 'color:red', $safe_style, 'safe color style survives CSS sanitizer' );
 
+$remote_styles = array(
+	'background-image:url(https://tracker.example/p.gif)',
+	'background-image:url("https://tracker.example/p.gif")',
+	'background-image:URL( https://tracker.example/p.gif )',
+	'background-image:url(https://tracker.example/p.gif',
+	'background:linear-gradient(red, blue), url(https://tracker.example/p.gif)',
+	'background-image:url(https://tracker.example/wp-content/uploads/p.gif)',
+	'background-image:url(//tracker.example/p.gif)',
+	'background-image:\75 rl(https://tracker.example/p.gif)',
+	'background-image:\000075rl(https://tracker.example/p.gif)',
+	'background-image:u\72l(https://tracker.example/p.gif)',
+	'background-image:image-set("https://tracker.example/p.gif" 1x)',
+	'background-image:-webkit-image-set("https://tracker.example/p.gif" 1x)',
+	'background-image:cross-fade(url(' . $source_image . '), "https://tracker.example/p.gif", 50%)',
+	'background-image:image("https://tracker.example/p.gif")',
+	'width:expression(alert(1))',
+);
+foreach ( $remote_styles as $remote_style ) {
+	assert_true( 'color:red' === wai_clean_style_attribute( $remote_style . ';color:red' ), 'style that may load a remote resource is dropped: ' . $remote_style );
+}
+$kept_functions = 'color:rgba(0, 0, 0, 0.5);transform:translate3d(0px, 0px, 0px) rotateY(180deg) perspective(0px);-webkit-transform:scale(1.2);width:calc(100% - 20px);background-image:-webkit-linear-gradient(top, rgb(255, 0, 0), transparent);background:url(' . $local_bg . ') center/cover;color:var(--weui-FG-0)';
+assert_true( $kept_functions === wai_clean_style_attribute( $kept_functions ), 'colour, size, gradient and transform functions and local url() are kept' );
+
+$remote_images = wai_prepare_import_content(
+	'<p>a<img src="https://tracker.example/q.gif" alt="">b<img src="https://tracker.example/wp-content/uploads/q.gif">c<img src="//tracker.example/q.gif">d</p>'
+	. '<p><img src="' . $local_image . '" alt="local"><img src="' . $source_image . '" alt="wechat"><img data-src="https://mmbiz.qpic.cn/unprocessed/0" src="" alt="failed"></p>'
+);
+assert_not_contains( 'tracker.example', $remote_images, 'images from other hosts are not stored' );
+assert_contains( '<p>abcd</p>', $remote_images, 'images from other hosts are removed, with the text around them kept' );
+assert_contains( '<img alt="failed">', $remote_images, 'an image that could not be downloaded keeps its placeholder' );
+assert_contains( '<img src="' . $local_image . '" alt="local">', $remote_images, 'local upload images are kept' );
+assert_contains( '<img src="' . htmlspecialchars( $source_image, ENT_QUOTES ) . '" alt="wechat">', $remote_images, 'unprocessed WeChat images are kept' );
+
 $urls = wai_collect_image_urls( $fixture, 'https://mmbiz.qpic.cn/cover/0?wx_fmt=jpeg' );
 assert_true( in_array( $source_image, $urls, true ), 'collector finds img data-src URL' );
 assert_true( in_array( $bg_image, $urls, true ), 'collector finds background image URL' );
@@ -456,6 +490,114 @@ assert_not_contains( 'box-sizing:border-box"><br', $empty_box_sizing_span_clean,
 $nested_visual_section = wai_prepare_import_content( '<section style="text-align:right;margin:-15px 0px 0px"><section style="display:inline-block;width:55px;height:15px;vertical-align:top;overflow:hidden;background-image:linear-gradient(red, blue)">&nbsp;</section></section>' );
 assert_contains( '<section style="text-align:right;margin:-15px 0px 0px"><section style="display:inline-block;width:55px;height:15px;vertical-align:top;overflow:hidden;background-image:linear-gradient(red, blue)">', $nested_visual_section, 'visual child sections are not collapsed into their parent spacer' );
 assert_contains( 'height:0;overflow:hidden;line-height:0;vertical-align:top', $nested_visual_section, 'visual child sections keep a zero-size marker' );
+
+foreach ( array( '<section><br></section>', '<section style="line-height:2;font-size:16px"><br></section>', '<section><span><br></span></section>' ) as $blank_line ) {
+	assert_contains( '<section><span style="display:inline-block;width:0;height:0;overflow:hidden;line-height:0;vertical-align:top;">', wai_prepare_import_content( '<section>a</section>' . $blank_line . '<section>b</section>' ), 'a blank line section keeps a marker, since TinyMCE saves a lone line break as an empty block: ' . $blank_line );
+}
+
+// A blank block keeps its number of lines, as one marker per line with line breaks only between them.
+$section_line   = '<span style="display:inline-block;width:0;height:0;overflow:hidden;line-height:0;vertical-align:top;">' . "\u{a0}</span>";
+$paragraph_line = '<span style="display:inline-block;width:0;height:0;line-height:0;vertical-align:baseline;overflow:hidden;">' . "\u{a0}</span>";
+$blank_lines    = array(
+	'<section><br><br><br></section>'                                             => '<section>' . $section_line . '<br>' . $section_line . '<br>' . $section_line . '</section>',
+	'<section style="line-height:2"><span><br></span><br></section>'            => '<section>' . $section_line . '<br>' . $section_line . '</section>',
+	'<p><br><br></p>'                                                             => '<p>' . $paragraph_line . '<br>' . $paragraph_line . '</p>',
+	'<p style="margin:0px"><span style="letter-spacing:1px"><br><br></span></p>' => '<p style="margin:0px">' . $paragraph_line . '<br>' . $paragraph_line . '</p>',
+	'<p>&nbsp;</p>'                                                               => '<p>' . $paragraph_line . '</p>',
+	'<p>&nbsp;<br></p>'                                                           => '<p>' . $paragraph_line . '</p>',
+	'<p><br>&nbsp;</p>'                                                           => '<p>' . $paragraph_line . '<br>' . $paragraph_line . '</p>',
+	"<section>\n<br>\n</section>"                                                 => '<section>' . $section_line . '</section>',
+);
+foreach ( $blank_lines as $blank_block => $expected ) {
+	assert_contains( '<p>a</p>' . $expected . '<p>b</p>', wai_prepare_import_content( '<p>a</p>' . $blank_block . '<p>b</p>' ), 'a blank block keeps its number of lines: ' . json_encode( $blank_block ) );
+}
+
+// Site typography: the theme owns font, body size and line spacing.
+$no_inherited = WAI_NO_INHERITED_TYPOGRAPHY;
+$typography   = wai_remove_site_typography( 'font-family:Optima-Regular, PingFangTC-light;color:red', $no_inherited );
+assert_true( 'color:red' === $typography['style'], 'font-family is always removed' );
+
+$typography = wai_remove_site_typography( 'font-size:16px;letter-spacing:0.6px;text-align:justify', $no_inherited );
+assert_true( 'letter-spacing:0.6px;text-align:justify' === $typography['style'], 'body font size is removed while Chinese letter spacing and justification stay' );
+assert_true( ! $typography['inherited']['font-size'], 'a removed body size is not passed on as a kept ancestor size' );
+
+assert_true( '' === wai_remove_site_typography( 'font-size:12pt', $no_inherited )['style'], 'body size in points is removed' );
+assert_true( '' === wai_remove_site_typography( 'font-size:14px', $no_inherited )['style'], 'the smallest body size is removed' );
+assert_true( '' === wai_remove_site_typography( 'font-size:18px', $no_inherited )['style'], 'the largest body size is removed' );
+assert_true( 'font-size:19px' === wai_remove_site_typography( 'font-size:19px', $no_inherited )['style'], 'a size above body text stays' );
+assert_true( 'font-size:13px' === wai_remove_site_typography( 'font-size:13px', $no_inherited )['style'], 'caption size stays' );
+assert_true( 'font-size:10pt' === wai_remove_site_typography( 'font-size:10pt', $no_inherited )['style'], 'small size in points stays' );
+assert_true( 'font-size:24px' === wai_remove_site_typography( 'font-size:24px', $no_inherited )['style'], 'display size stays' );
+assert_true( wai_remove_site_typography( 'font-size:13px', $no_inherited )['inherited']['font-size'], 'a kept size is passed on to children' );
+
+$inside_caption = array( 'font-size' => true, 'line-height' => false );
+assert_true( 'font-size:15px' === wai_remove_site_typography( 'font-size:15px', $inside_caption )['style'], 'body size stays inside an ancestor that keeps a different size' );
+
+assert_true( 'color:red' === wai_remove_site_typography( 'line-height:2.2;color:red', $no_inherited )['style'], 'text line spacing is removed' );
+assert_true( '' === wai_remove_site_typography( 'line-height:2em', $no_inherited )['style'], 'text line spacing in em is removed' );
+assert_true( 'line-height:2em;height:2em' === wai_remove_site_typography( 'line-height:2em;height:2em', $no_inherited )['style'], 'line spacing that centres text in a fixed height stays' );
+assert_true( 'line-height:2;min-height:40px' === wai_remove_site_typography( 'line-height:2;min-height:40px', $no_inherited )['style'], 'line spacing that centres text in a minimum height stays' );
+assert_true( '' === wai_remove_site_typography( 'line-height:1.5', $no_inherited )['style'], 'the tightest text line spacing is removed' );
+assert_true( '' === wai_remove_site_typography( 'line-height:2.5', $no_inherited )['style'], 'the loosest text line spacing is removed' );
+assert_true( 'line-height:1;padding:2px 8px;background-color:#eee' === wai_remove_site_typography( 'line-height:1;padding:2px 8px;background-color:#eee', $no_inherited )['style'], 'tight badge line spacing stays' );
+assert_true( 'line-height:1.4' === wai_remove_site_typography( 'line-height:1.4', $no_inherited )['style'], 'line spacing below the text range stays' );
+assert_true( 'line-height:4' === wai_remove_site_typography( 'line-height:4', $no_inherited )['style'], 'band line spacing outside the text range stays' );
+assert_true( 'font-size:12px;line-height:1.5' === wai_remove_site_typography( 'font-size:12px;line-height:1.5', $no_inherited )['style'], 'line spacing paired with a kept size stays' );
+assert_true( 'line-height:1.6' === wai_remove_site_typography( 'line-height:1.6', $inside_caption )['style'], 'line spacing under an ancestor that keeps a size stays' );
+
+$image_wrapper = wai_remove_site_typography( 'line-height:0', $no_inherited );
+assert_true( 'line-height:0' === $image_wrapper['style'], 'zero line-height of an image wrapper stays' );
+assert_true( $image_wrapper['inherited']['line-height'], 'a kept line-height is passed on to children' );
+assert_true( 'line-height:1.75' === wai_remove_site_typography( 'line-height:1.75', $image_wrapper['inherited'] )['style'], 'text line spacing under a kept line-height stays, so it does not inherit zero' );
+
+$untouched = 'color: red; letter-spacing: 1px';
+assert_true( $untouched === wai_remove_site_typography( $untouched, $no_inherited )['style'], 'a style with nothing to remove is returned unchanged' );
+assert_true( 'color:red' === wai_remove_site_typography( "font-family:'A;B', serif;color:red", $no_inherited )['style'], 'a semicolon inside a quoted font name does not split the declaration' );
+assert_true( array( 'background:url("a;b")', 'color:red' ) === wai_split_style_declarations( 'background:url("a;b");color:red' ), 'a semicolon inside url() does not split the declaration' );
+assert_true( array( 'color:red/*(";*/', 'font-family:x' ) === wai_split_style_declarations( 'color:red/*(";*/;font-family:x' ), 'quotes, parentheses and semicolons inside a comment do not hide the next declaration' );
+assert_true( array( 'font-family:a\;b', 'color:red' ) === wai_split_style_declarations( 'font-family:a\;b;color:red' ), 'an escaped semicolon does not split the declaration' );
+assert_true( array( 'font-family:x[;width:9999px;height:9999px]' ) === wai_split_style_declarations( 'font-family:x[;width:9999px;height:9999px]' ), 'semicolons inside a [] block do not split the declaration' );
+assert_true( array( 'color:red', 'font-family:a{;width:9999px;}' ) === wai_split_style_declarations( 'color:red;font-family:a{;width:9999px;}' ), 'semicolons inside a {} block do not split the declaration' );
+assert_true( array( 'color:x(];width:1px' ) === wai_split_style_declarations( 'color:x(];width:1px' ), 'a bracket of another kind does not close a parenthesis' );
+assert_true( array( 'color:red)', 'width:1px' ) === wai_split_style_declarations( 'color:red);width:1px' ), 'a bracket that closes no block is plain text' );
+assert_true(
+	array( "background-image:url(https://mmbiz.qpic.cn/a'b)", 'font-size:16px', 'line-height:2' ) === wai_split_style_declarations( "background-image:url(https://mmbiz.qpic.cn/a'b);font-size:16px;line-height:2" ),
+	'a quote inside an unquoted url() does not start a string'
+);
+assert_true( array( 'background:url(a/*)', 'color:red' ) === wai_split_style_declarations( 'background:url(a/*);color:red' ), 'a comment marker inside an unquoted url() does not start a comment' );
+assert_true( array( 'background:myurl(a"b);color:red' ) === wai_split_style_declarations( 'background:myurl(a"b);color:red' ), 'only url() itself holds an unquoted URL' );
+assert_true( '' === wai_remove_site_typography( 'font-family:x[;width:9999px;height:9999px]', $no_inherited )['style'], 'a declaration that hides others in a block is removed whole, so none of it starts to apply' );
+assert_true( 'background:x[;font-family:a];width:100px' === wai_remove_site_typography( 'background:x[;font-family:a];width:100px', $no_inherited )['style'], 'a font family inside another declaration\'s block is not a declaration' );
+assert_true( "background-image:url(https://mmbiz.qpic.cn/a'b)" === wai_remove_site_typography( "background-image:url(https://mmbiz.qpic.cn/a'b);font-size:16px;line-height:2", $no_inherited )['style'], 'a quote inside an unquoted url() does not hide the body size and line spacing' );
+
+foreach ( array( 'font:13px serif;font-size:16px', 'font:13px Georgia;font-family:Optima-Regular', 'font-family:x;font:13px/1.6 serif;line-height:2' ) as $font_style ) {
+	assert_true( $font_style === wai_remove_site_typography( $font_style, $no_inherited )['style'], 'a style with a font shorthand keeps its typography: ' . $font_style );
+}
+$font_shorthand = wai_remove_site_typography( 'font:13px/1.6 serif', $no_inherited );
+assert_true( $font_shorthand['inherited']['font-size'] && $font_shorthand['inherited']['line-height'], 'the font shorthand counts as a kept size and line spacing' );
+assert_true( 'font-size:16px;line-height:2' === wai_remove_site_typography( 'font-size:16px;line-height:2', $font_shorthand['inherited'] )['style'], 'body size and line spacing under a font shorthand stay' );
+assert_true( 'line-height:0;line-height:1.75' === wai_remove_site_typography( 'line-height:0;line-height:1.75', $no_inherited )['style'], 'a repeated line-height stays' );
+assert_true( 'font-size:13px;font-size:16px' === wai_remove_site_typography( 'font-size:13px;font-size:16px', $no_inherited )['style'], 'a repeated font size stays' );
+
+$smuggled = wai_prepare_import_content(
+	'<p style="color:red/*(*/;position:fixed;top:0;z-index:99999">overlay</p>'
+	. '<p style="color:red/*&quot;*/;position:fixed">overlay</p>'
+	. '<p style="background-image:url(https://mmbiz.qpic.cn/a&quot;b);position:fixed">overlay</p>'
+	. '<p style="background-image:url(https://mmbiz.qpic.cn/a/*);position:fixed;z-index:99999;*/">overlay</p>'
+);
+assert_not_contains( 'position', $smuggled, 'comments, quotes and parentheses cannot carry a disallowed property past the style allowlist' );
+assert_not_contains( 'z-index', $smuggled, 'a comment cannot carry a disallowed stacking order past the style allowlist' );
+
+$typography_clean = wai_prepare_import_content(
+	'<section style="line-height: 2.2; letter-spacing: 0.6px; font-size: 16px; font-family: Optima-Regular, PingFangTC-light; text-align: justify;">'
+	. '<p style="margin: 0px;"><span style="font-family: Optima-Regular, PingFangTC-light;">body text</span></p>'
+	. '<section style="line-height: 0;"><span style="line-height: 1.75; font-size: 15px;">over image</span></section>'
+	. '<p style="font-size: 13px; line-height: 1.6; color: rgb(128, 128, 128);">caption</p>'
+	. '</section>'
+);
+assert_contains( '<section style="letter-spacing:0.6px;text-align:justify"><p style="margin:0px">body text</p>', $typography_clean, 'imports drop WeChat font, body size and line spacing, and unwrap spans left without styles' );
+assert_contains( '<section style="line-height:0"><span style="line-height:1.75">over image</span></section>', $typography_clean, 'imports keep line spacing under an image wrapper' );
+assert_contains( '<p style="font-size:13px;line-height:1.6;color:rgb(128, 128, 128)">caption</p>', $typography_clean, 'imports keep caption typography' );
 
 $html = '<html><head><meta property="og:image" content="https://mmbiz.qpic.cn/cover/0?wx_fmt=jpeg" /></head><body><h1 id="activity-name"> 今日谷雨，宜开封 </h1><div class="rich_media_content" id="js_content">' . $fixture . '</div><script>var ct = "1713625275";</script></body></html>';
 $article = wai_parse_wechat_article_html( $html );

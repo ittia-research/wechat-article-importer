@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       WeChat Article Importer
  * Description:       Import WeChat Official Account articles into WordPress drafts, including content, featured images, and inline images.
- * Version:           0.2.3
+ * Version:           0.3.0
  * Author:            ITTIA
  * Author URI:        https://github.com/ittia-research
  * License:           GPLv2
@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-const WAI_VERSION = '0.2.3';
+const WAI_VERSION = '0.3.0';
 const WAI_SOURCE_URL_META = '_wai_import_source_url';
 const WAI_CONTENT_HASH_META = '_wai_import_content_hash';
 const WAI_ATTACHMENT_CONTENT_MD5_META = '_wai_attachment_content_md5';
@@ -28,6 +28,10 @@ const WAI_MAX_IMAGE_BYTES = 20971520;
 const WAI_IMPORT_CAPABILITY = 'wai_import_wechat_articles';
 const WAI_CAPABILITY_VERSION = '1';
 const WAI_CAPABILITY_VERSION_OPTION = 'wai_capability_version';
+const WAI_NO_INHERITED_TYPOGRAPHY = array(
+	'font-size'   => false,
+	'line-height' => false,
+);
 
 
 register_activation_hook( __FILE__, 'wai_activate' );
@@ -338,17 +342,34 @@ function wai_is_allowed_image_url( $url ) {
 }
 
 /**
+ * Whether a URL is in this site's uploads, on the same host and below the same path.
+ *
  * @param string $url URL.
  * @return bool
  */
 function wai_is_local_upload_url( $url ) {
-	$parts = wai_parse_url( $url );
-	if ( ! is_array( $parts ) ) {
+	$upload_dir = wp_upload_dir( null, false );
+	$base       = wai_parse_url( (string) ( $upload_dir['baseurl'] ?? '' ) );
+	$parts      = wai_parse_url( (string) $url );
+	if ( ! is_array( $base ) || ! is_array( $parts ) || empty( $base['host'] ) || empty( $parts['host'] ) ) {
 		return false;
 	}
 
-	$path = (string) ( $parts['path'] ?? '' );
-	return false !== strpos( $path, '/wp-content/uploads/' );
+	$base_path = rtrim( (string) ( $base['path'] ?? '' ), '/' ) . '/';
+	return wai_normalize_host( $parts['host'] ) === wai_normalize_host( $base['host'] )
+		&& ( $parts['port'] ?? null ) === ( $base['port'] ?? null )
+		&& wai_str_starts_with( (string) ( $parts['path'] ?? '' ), $base_path );
+}
+
+/**
+ * Whether stored content may load an image from a URL: WeChat media, which the
+ * import replaces with local copies, or this site's uploads.
+ *
+ * @param string $url Normalized URL.
+ * @return bool
+ */
+function wai_is_allowed_image_source( $url ) {
+	return '' !== $url && ( wai_is_allowed_image_url( $url ) || wai_is_local_upload_url( $url ) );
 }
 
 function wai_importer_page_html() {
@@ -356,7 +377,7 @@ function wai_importer_page_html() {
 	<div class="wrap">
 		<h1><?php esc_html_e( 'WeChat Article Importer', 'wechat-article-importer' ); ?></h1>
 		<p><?php esc_html_e( 'Paste a WeChat Official Account article link to fetch the title, content, cover image, and inline images automatically, then save the result as a WordPress draft.', 'wechat-article-importer' ); ?></p>
-		<p class="description"><?php esc_html_e( 'Imported content is converted into WordPress-stable HTML: layout-critical inline styles are preserved, while WeChat editor markers, empty attributes, and unstable placeholder elements are removed.', 'wechat-article-importer' ); ?></p>
+		<p class="description"><?php esc_html_e( 'Imported content is converted into WordPress-stable HTML: layout styles are preserved, fonts, body text sizes and line spacing are left to the site theme, and WeChat editor markers, empty attributes, and unstable placeholder elements are removed.', 'wechat-article-importer' ); ?></p>
 
 		<form id="wai-importer-form" method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 			<table class="form-table">
@@ -379,7 +400,7 @@ function wai_importer_page_html() {
 					</tr>
 				</tbody>
 			</table>
-			<?php submit_button( __( 'Start Import', 'wechat-article-importer' ), 'primary', 'submit', true, array( 'class' => 'wai-submit-button' ) ); ?>
+			<?php submit_button( __( 'Start Import', 'wechat-article-importer' ), 'primary wai-submit-button' ); ?>
 		</form>
 
 		<div id="wai-feedback" style="margin-top: 20px;"></div>
@@ -758,6 +779,7 @@ function wai_prepare_import_content( $content_html, $processed_images = array() 
 	wai_remove_wechat_only_elements( $doc, $xpath );
 	wai_replace_placeholder_svgs( $doc );
 	wai_clean_dom_tree( $doc );
+	wai_remove_site_typography_from_tree( $doc, WAI_NO_INHERITED_TYPOGRAPHY );
 	wai_simplify_inline_element_styles( $doc );
 	wai_unwrap_non_visual_empty_inline_wrappers( $doc );
 	wai_unwrap_redundant_spans( $doc );
@@ -1022,10 +1044,172 @@ function wai_is_placeholder_svg( DOMElement $svg ) {
  */
 function wai_clean_dom_tree( DOMDocument $doc ) {
 	$xpath = new DOMXPath( $doc );
+
+	// An article's own images are WeChat media, which the import copies, so an
+	// image from any other host is removed. One without a usable source stays as
+	// the placeholder of an image that could not be downloaded.
+	foreach ( iterator_to_array( $xpath->query( '//img[@src]' ) ) as $img ) {
+		$src = wai_normalize_url_attribute( $img->getAttribute( 'src' ) );
+		if ( '' !== $src && ! wai_is_allowed_image_source( $src ) ) {
+			$img->parentNode->removeChild( $img );
+		}
+	}
+
 	$nodes = $xpath->query( '//*' );
 	foreach ( iterator_to_array( $nodes ) as $node ) {
 		wai_clean_element_attributes( $node );
 	}
+}
+
+/**
+ * Removes theme-owned typography from every inline style, top down, so each element
+ * knows which inheritable properties its ancestors keep.
+ *
+ * @param DOMNode                                $node      Parent node.
+ * @param array{font-size:bool,line-height:bool} $inherited What the node's ancestors keep.
+ * @return void
+ */
+function wai_remove_site_typography_from_tree( DOMNode $node, array $inherited ) {
+	foreach ( iterator_to_array( $node->childNodes ) as $child ) {
+		if ( ! $child instanceof DOMElement ) {
+			continue;
+		}
+		$child_inherited = $inherited;
+		if ( $child->hasAttribute( 'style' ) ) {
+			$result = wai_remove_site_typography( $child->getAttribute( 'style' ), $inherited );
+			if ( '' === $result['style'] ) {
+				$child->removeAttribute( 'style' );
+			} else {
+				$child->setAttribute( 'style', $result['style'] );
+			}
+			$child_inherited = $result['inherited'];
+		}
+		wai_remove_site_typography_from_tree( $child, $child_inherited );
+	}
+}
+
+/**
+ * Removes the typography that the site theme owns from one element's inline CSS.
+ *
+ * The theme sets the article font, body text size and line spacing for each
+ * language, and WeChat's copies of them would override it. A declaration is
+ * removed only where the inherited theme value can take its place:
+ *
+ * - font-family, always.
+ * - font-size, when it is a body text size (14-18px) and no ancestor keeps a
+ *   size, so the text gets the article size rather than a caption size.
+ * - line-height, when it is text spacing (1.5-2.5, unitless or em), the
+ *   element keeps no height that the spacing centres text in, and neither the
+ *   element nor an ancestor keeps a size or a line-height (such as an image
+ *   wrapper's line-height:0, which a removed child value would then inherit).
+ *
+ * A style with a `font` shorthand keeps all of its typography, and its
+ * children count as keeping a size and line-height. A size or line-height
+ * declared more than once stays, since which one applies depends on order and
+ * priority. Letter spacing and justified alignment stay: they suit Chinese
+ * text, and a theme can override them for other languages with !important.
+ *
+ * @param string                                 $style     Inline CSS.
+ * @param array{font-size:bool,line-height:bool} $inherited Whether an ancestor keeps each property.
+ * @return array{style:string,inherited:array{font-size:bool,line-height:bool}} The remaining CSS,
+ *     unchanged when nothing is removed, and what the element's children inherit.
+ */
+function wai_remove_site_typography( $style, array $inherited ) {
+	$declarations = wai_parse_style_declarations( $style );
+	$counts       = array_count_values( array_column( $declarations, 'property' ) );
+	$sets_height  = isset( $counts['height'] ) || isset( $counts['min-height'] );
+
+	// A font shorthand sets the family, size and line spacing itself: a longhand
+	// removed after it would fall back to the shorthand's value, not the theme's.
+	if ( isset( $counts['font'] ) ) {
+		return array(
+			'style'     => $style,
+			'inherited' => array(
+				'font-size'   => true,
+				'line-height' => true,
+			),
+		);
+	}
+
+	$removed         = array();
+	$keeps_font_size = false;
+	foreach ( $declarations as $index => $declaration ) {
+		if ( 'font-family' === $declaration['property'] ) {
+			$removed[ $index ] = true;
+		} elseif ( 'font-size' === $declaration['property'] ) {
+			if ( 1 === $counts['font-size'] && ! $inherited['font-size'] && wai_is_body_font_size( $declaration['value'] ) ) {
+				$removed[ $index ] = true;
+			} else {
+				$keeps_font_size = true;
+			}
+		}
+	}
+
+	$keeps_line_height = false;
+	foreach ( $declarations as $index => $declaration ) {
+		if ( 'line-height' !== $declaration['property'] ) {
+			continue;
+		}
+		if (
+			1 === $counts['line-height']
+			&& ! $sets_height
+			&& ! $keeps_font_size
+			&& ! $inherited['font-size']
+			&& ! $inherited['line-height']
+			&& wai_is_text_line_height( $declaration['value'] )
+		) {
+			$removed[ $index ] = true;
+		} else {
+			$keeps_line_height = true;
+		}
+	}
+
+	$children_inherit = array(
+		'font-size'   => $inherited['font-size'] || $keeps_font_size,
+		'line-height' => $inherited['line-height'] || $keeps_line_height,
+	);
+	if ( empty( $removed ) ) {
+		return array(
+			'style'     => $style,
+			'inherited' => $children_inherit,
+		);
+	}
+
+	$kept = array();
+	foreach ( $declarations as $index => $declaration ) {
+		if ( ! isset( $removed[ $index ] ) ) {
+			$kept[] = $declaration['property'] . ':' . $declaration['value'];
+		}
+	}
+	return array(
+		'style'     => implode( ';', $kept ),
+		'inherited' => $children_inherit,
+	);
+}
+
+/**
+ * @param string $value CSS font-size value.
+ * @return bool Whether the value is a body text size, 14-18px.
+ */
+function wai_is_body_font_size( $value ) {
+	if ( ! preg_match( '/^(\d+(?:\.\d+)?|\.\d+)(px|pt)$/i', trim( $value ), $matches ) ) {
+		return false;
+	}
+	$pixels = (float) $matches[1] * ( 'pt' === strtolower( $matches[2] ) ? 4 / 3 : 1 );
+	return $pixels >= 14 && $pixels <= 18;
+}
+
+/**
+ * @param string $value CSS line-height value.
+ * @return bool Whether the value is a text line spacing, 1.5-2.5 unitless or em.
+ *     Tighter values set badges and labels, not paragraphs.
+ */
+function wai_is_text_line_height( $value ) {
+	if ( ! preg_match( '/^(\d+(?:\.\d+)?|\.\d+)(em)?$/i', trim( $value ), $matches ) ) {
+		return false;
+	}
+	$ratio = (float) $matches[1];
+	return $ratio >= 1.5 && $ratio <= 2.5;
 }
 
 /**
@@ -1171,7 +1355,9 @@ function wai_remove_redundant_anchor_title( DOMElement $anchor ) {
  */
 function wai_clean_style_attribute( $style ) {
 	$declarations = array();
-	foreach ( wai_parse_style_declarations( $style ) as $declaration ) {
+	// Split on every semicolon, even inside quotes, parentheses or comments, so
+	// no declaration can carry another one past the property allowlist.
+	foreach ( wai_parse_raw_style_declarations( explode( ';', (string) $style ) ) as $declaration ) {
 		$property = $declaration['property'];
 		if ( ! wai_is_allowed_style_property( $property ) ) {
 			continue;
@@ -1300,27 +1486,36 @@ function wai_is_allowed_style_property( $property ) {
 }
 
 /**
+ * Cleans one CSS value, or returns an empty string to drop the declaration.
+ *
+ * A value may only load an image through url(), from WeChat media or this site's
+ * uploads. CSS escapes can spell any function name, url( included, so a value
+ * with a backslash is dropped, and so is a call to any function outside
+ * wai_is_allowed_style_function(), since image-set() and its kind load URLs
+ * without url().
+ *
  * @param string $value CSS value.
  * @return string
  */
 function wai_clean_style_value( $value ) {
 	$value = trim( preg_replace( '/\s+/', ' ', (string) $value ) );
-	if ( '' === $value ) {
+	if ( '' === $value || preg_match( '/[\\\\<>]/', $value ) ) {
 		return '';
 	}
 
-	$compact = preg_replace( '/[\x00-\x20]+/', '', strtolower( $value ) );
-	if ( preg_match( '/(?:expression|behavior|-moz-binding|binding|javascript|vbscript|data)\s*[:(]/i', $compact ) || false !== strpos( $value, '<' ) || false !== strpos( $value, '>' ) ) {
-		return '';
+	// A function name is the run of name characters, ASCII or not, right before "(".
+	preg_match_all( '/((?:[a-z0-9_-]|[^\x00-\x7f])*)\(/i', $value, $calls );
+	foreach ( $calls[1] as $name ) {
+		if ( '' !== $name && ! wai_is_allowed_style_function( $name ) ) {
+			return '';
+		}
 	}
 
-	if ( preg_match_all( '/url\(([^)]*)\)/i', $value, $matches ) ) {
+	// The closing parenthesis is optional: an unclosed url( runs to the end of the value.
+	if ( preg_match_all( '/url\(([^)]*)\)?/i', $value, $matches ) ) {
 		foreach ( $matches[1] as $index => $raw_url ) {
 			$clean_url = wai_normalize_url_attribute( trim( $raw_url, " \t\n\r\0\x0B'\"" ) );
-			if ( '' === $clean_url ) {
-				return '';
-			}
-			if ( ! wai_is_allowed_image_url( $clean_url ) && ! wai_is_local_upload_url( $clean_url ) ) {
+			if ( ! wai_is_allowed_image_source( $clean_url ) ) {
 				return '';
 			}
 			$value = str_replace( $matches[0][ $index ], 'url(' . $clean_url . ')', $value );
@@ -1328,6 +1523,65 @@ function wai_clean_style_value( $value ) {
 	}
 
 	return $value;
+}
+
+/**
+ * Whether a CSS function only computes a colour, size, gradient or transform, or is
+ * url(), whose URL wai_clean_style_value() checks.
+ *
+ * @param string $name Function name, with or without a vendor prefix.
+ * @return bool
+ */
+function wai_is_allowed_style_function( $name ) {
+	$allowed = array(
+		'url',
+		'var',
+		'calc',
+		'min',
+		'max',
+		'clamp',
+		'rgb',
+		'rgba',
+		'hsl',
+		'hsla',
+		'hwb',
+		'lab',
+		'lch',
+		'oklab',
+		'oklch',
+		'color',
+		'color-mix',
+		'linear-gradient',
+		'radial-gradient',
+		'conic-gradient',
+		'repeating-linear-gradient',
+		'repeating-radial-gradient',
+		'repeating-conic-gradient',
+		'matrix',
+		'matrix3d',
+		'perspective',
+		'rotate',
+		'rotate3d',
+		'rotatex',
+		'rotatey',
+		'rotatez',
+		'scale',
+		'scale3d',
+		'scalex',
+		'scaley',
+		'scalez',
+		'skew',
+		'skewx',
+		'skewy',
+		'translate',
+		'translate3d',
+		'translatex',
+		'translatey',
+		'translatez',
+	);
+
+	$name = preg_replace( '/^-(?:webkit|moz|ms|o)-/', '', strtolower( (string) $name ) );
+	return in_array( $name, $allowed, true );
 }
 
 /**
@@ -1354,6 +1608,13 @@ function wai_clean_class_attribute( $class ) {
 }
 
 /**
+ * Replaces the content of blank blocks with editor-stable markers, one per
+ * line, so they keep their number of lines.
+ *
+ * Line breaks go only between markers. wpautop() turns two breaks in a row
+ * into a paragraph break and drops a break right after a block tag, and
+ * editors drop a trailing break, so a block of breaks alone loses its lines.
+ *
  * @param DOMDocument $doc Document.
  * @return void
  */
@@ -1364,12 +1625,39 @@ function wai_normalize_blank_blocks( DOMDocument $doc ) {
 			if ( ! wai_is_visually_empty_element( $node ) ) {
 				continue;
 			}
+			$lines = wai_blank_block_line_count( $node );
 			while ( $node->firstChild ) {
 				$node->removeChild( $node->firstChild );
 			}
-			wai_append_blank_block_marker( $doc, $node );
+			for ( $i = 0; $i < $lines; $i++ ) {
+				if ( $i > 0 ) {
+					$node->appendChild( $doc->createElement( 'br' ) );
+				}
+				wai_append_blank_block_marker( $doc, $node );
+			}
 		}
 	}
+}
+
+/**
+ * @param DOMElement $element A blank block: line breaks, white space and markers.
+ * @return int Lines the block shows: one per line break, one more when a
+ *     marker or a non-breaking space follows the last break, and at least one.
+ */
+function wai_blank_block_line_count( DOMElement $element ) {
+	$breaks    = 0;
+	$open_line = false;
+	$xpath     = new DOMXPath( $element->ownerDocument );
+	foreach ( $xpath->query( './/br | .//text()', $element ) as $node ) {
+		if ( XML_ELEMENT_NODE === $node->nodeType ) {
+			++$breaks;
+			$open_line = false;
+		} elseif ( '' !== trim( $node->nodeValue ) ) {
+			// Collapsible white space makes no line; a non-breaking space does.
+			$open_line = true;
+		}
+	}
+	return max( 1, $breaks + ( $open_line ? 1 : 0 ) );
 }
 
 /**
@@ -1397,7 +1685,9 @@ function wai_append_blank_block_marker( DOMDocument $doc, DOMElement $element ) 
 
 /**
  * @param DOMElement $element Element.
- * @return bool
+ * @return bool Whether the element is blank space that an editor could discard:
+ *     a blank paragraph, a blank block that holds a line break (one blank
+ *     line, which TinyMCE saves as an empty block), or a blank styled box.
  */
 function wai_is_visually_empty_element( DOMElement $element ) {
 	$text = trim( str_replace( html_entity_decode( '&nbsp;', ENT_QUOTES, 'UTF-8' ), '', $element->textContent ) );
@@ -1434,7 +1724,7 @@ function wai_is_visually_empty_element( DOMElement $element ) {
 			return false;
 	}
 
-	if ( 'p' === strtolower( $element->tagName ) ) {
+	if ( 'p' === strtolower( $element->tagName ) || $element->getElementsByTagName( 'br' )->length > 0 ) {
 		return true;
 	}
 	$style = strtolower( $element->getAttribute( 'style' ) );
@@ -1585,12 +1875,23 @@ function wai_remove_ineffective_inline_style_declarations( $style ) {
 }
 
 /**
+ * Parses inline CSS into the declarations a browser sees. Not for sanitizing:
+ * wai_clean_style_attribute() splits on every semicolon instead.
+ *
  * @param string $style Inline CSS.
  * @return array<int,array{property:string,value:string}>
  */
 function wai_parse_style_declarations( $style ) {
+	return wai_parse_raw_style_declarations( wai_split_style_declarations( (string) $style ) );
+}
+
+/**
+ * @param string[] $raw_declarations Declarations as "property: value" text.
+ * @return array<int,array{property:string,value:string}>
+ */
+function wai_parse_raw_style_declarations( array $raw_declarations ) {
 	$declarations = array();
-	foreach ( explode( ';', (string) $style ) as $declaration ) {
+	foreach ( $raw_declarations as $declaration ) {
 		$declaration = trim( preg_replace( '/\s+/', ' ', $declaration ) );
 		if ( '' === $declaration || false === strpos( $declaration, ':' ) ) {
 			continue;
@@ -1605,6 +1906,86 @@ function wai_parse_style_declarations( $style ) {
 		);
 	}
 	return $declarations;
+}
+
+/**
+ * Splits inline CSS on the semicolons that end declarations, as a browser's
+ * CSS tokenizer does: not those inside quotes, comments, an unquoted url(), or
+ * a (), [] or {} block. Comments stay in the declaration text.
+ *
+ * @param string $style Inline CSS.
+ * @return string[] Raw declarations.
+ */
+function wai_split_style_declarations( $style ) {
+	$declarations = array();
+	$current      = '';
+	$quote        = '';
+	$block_closer = array(
+		'(' => ')',
+		'[' => ']',
+		'{' => '}',
+	);
+	$closers      = array(); // What closes each block the scan is inside, innermost last.
+	$length       = strlen( $style );
+	for ( $i = 0; $i < $length; $i++ ) {
+		$char = $style[ $i ];
+		if ( '\\' === $char && $i + 1 < $length ) {
+			$current .= $char . $style[ ++$i ];
+			continue;
+		}
+		if ( '' !== $quote ) {
+			// A line break ends an unterminated string.
+			if ( $char === $quote || "\n" === $char ) {
+				$quote = '';
+			}
+			$current .= $char;
+			continue;
+		}
+
+		$end = null;
+		if ( '/' === $char && '*' === ( $style[ $i + 1 ] ?? '' ) ) {
+			$end = strpos( $style, '*/', $i + 2 );
+			$end = false === $end ? $length : $end + 2;
+		} elseif ( '(' === $char && wai_starts_unquoted_url( $style, $current, $i ) ) {
+			// Quotes and brackets in an unquoted url() are part of the URL.
+			$end = $i + 1;
+			while ( $end < $length && ')' !== $style[ $end ] ) {
+				$end += '\\' === $style[ $end ] ? 2 : 1;
+			}
+			$end = min( $end + 1, $length );
+		}
+		if ( null !== $end ) {
+			$current .= substr( $style, $i, $end - $i );
+			$i        = $end - 1;
+			continue;
+		}
+
+		if ( '"' === $char || "'" === $char ) {
+			$quote = $char;
+		} elseif ( isset( $block_closer[ $char ] ) ) {
+			$closers[] = $block_closer[ $char ];
+		} elseif ( $closers && end( $closers ) === $char ) {
+			array_pop( $closers );
+		} elseif ( ';' === $char && ! $closers ) {
+			$declarations[] = $current;
+			$current        = '';
+			continue;
+		}
+		$current .= $char;
+	}
+	$declarations[] = $current;
+	return $declarations;
+}
+
+/**
+ * @param string $style   Inline CSS.
+ * @param string $current The declaration text before the parenthesis.
+ * @param int    $offset  Offset of an opening parenthesis in $style.
+ * @return bool Whether the parenthesis opens a url() whose URL is not quoted.
+ */
+function wai_starts_unquoted_url( $style, $current, $offset ) {
+	return preg_match( '/(?<![\w\-\\\\\x80-\xff])url$/i', $current )
+		&& ! preg_match( '/\G\s*+["\']/', $style, $unused, 0, $offset + 1 );
 }
 
 /**
