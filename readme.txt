@@ -3,7 +3,7 @@ Contributors: ittia, xiaozhai001
 Tags: wechat, wordpress, import, 微信公众号文章, 采集, 导入
 Requires at least: 5.0
 Tested up to: 6.9
-Stable tag: 0.3.0
+Stable tag: 0.3.1
 Requires PHP: 7.4
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -56,6 +56,8 @@ Media files newly uploaded by this importer get `_wai_imported_attachment=1` plu
 == Changelog ==
 
 = 0.3.1 =
+* Imported articles no longer keep the edge padding that WeChat puts around the whole article. A top-level section or div that paints nothing itself (no background, border, box-shadow or outline) loses its left and right padding when every side is zero or at most 16px, so the text lines up with the title and the column edge. Vertical padding, coloured or bordered boxes, wider insets and nested elements are left alone.
+* Added `wai_remove_wrapper_side_inset()`, which a one-time backfill can reuse to apply the same rule to existing posts.
 * Fixed images missing from imported articles, usually the first one. A download that failed once, typically on a DNS timeout for the WeChat image host, was skipped, and the article kept a bare `<img>` with no source. Downloads that fail on a name lookup, connection, dropped connection, HTTP 429 or server error are now retried, up to three attempts, before the image is skipped.
 * The final import notice now lists every image the saved article shows without a local copy, including the featured image and images the importer could not look up, not only the downloads that returned an error. `wai_import_wechat_article()` raises a warning for each one.
 
