@@ -3,7 +3,7 @@ Contributors: ittia, xiaozhai001
 Tags: wechat, wordpress, import, 微信公众号文章, 采集, 导入
 Requires at least: 5.0
 Tested up to: 6.9
-Stable tag: 0.3.1
+Stable tag: 0.3.2
 Requires PHP: 7.4
 License: GPLv2
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -21,7 +21,7 @@ Paste a WeChat Official Account article URL and the plugin will fetch:
 * Featured image
 * Inline images, downloaded into the WordPress media library
 
-The importer runs as a multi-step admin AJAX flow so large articles can be processed without a single long blocking request. Before saving, it converts WeChat source HTML into WordPress-stable HTML: layout-critical inline styles are preserved, the article font, body text size and line spacing are left to the site theme, the side padding of a plain outer wrapper is removed, image/background URLs are localized, invalid block-wrapping image links are normalized, intentional blank spacers are rewritten into editor-stable inline markers, placeholder SVGs are replaced, and WeChat-only custom tags/attributes are removed. Media de-duplication is site-wide through canonical attachment content MD5 metadata, not WeChat source URL hashes.
+The importer runs as a multi-step admin AJAX flow so large articles can be processed without a single long blocking request. Before saving, it converts WeChat source HTML into WordPress-stable HTML: layout-critical inline styles are preserved, the article font, body text size and line spacing are left to the site theme, the side padding of a plain outer wrapper is removed, paragraphs no longer pull into each other with negative margins, image/background URLs are localized, invalid block-wrapping image links are normalized, intentional blank spacers are rewritten into editor-stable inline markers, placeholder SVGs are replaced, and WeChat-only custom tags/attributes are removed. Media de-duplication is site-wide through canonical attachment content MD5 metadata, not WeChat source URL hashes.
 
 == Installation ==
 
@@ -54,6 +54,10 @@ New and regenerated attachments get `_wai_attachment_content_md5` automatically.
 Media files newly uploaded by this importer get `_wai_imported_attachment=1` plus `_wai_source_image_url` with the original WeChat image URL. The `_wai_attachment_content_md5` key is source-agnostic dedupe metadata and can also exist on manual uploads.
 
 == Changelog ==
+
+= 0.3.2 =
+* Lines in consecutive paragraphs are no longer set closer together than the lines a paragraph wraps onto. Some WeChat templates give every paragraph `margin: 0 0 -5px`; a paragraph's negative top or bottom margin now becomes zero, while horizontal margins and the negative margins of decorative sections stay.
+* Added `wai_remove_paragraph_pull()`, which a one-time backfill can reuse to apply the same rule to existing posts.
 
 = 0.3.1 =
 * Imported articles no longer keep the edge padding that WeChat puts around the whole article. A top-level section or div that paints nothing itself (no background, border, box-shadow or outline) loses its left and right padding when every side is zero or at most 16px, so the text lines up with the title and the column edge. Vertical padding, coloured or bordered boxes, wider insets and nested elements are left alone.
