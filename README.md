@@ -52,6 +52,15 @@ Typography that the site theme owns is removed by `wai_remove_site_typography()`
 
 Letter spacing and justified alignment stay, because they suit Chinese text; a theme can override them for other languages with `!important` rules. The function works on one style attribute plus what its ancestors keep, so a one-time backfill of existing posts can reuse it with an HTML walker that tracks ancestors.
 
+WeChat also wraps most articles in one top-level section with `padding: 0 10px` (sometimes 15px), an edge margin for its phone layout that pushes the text in from the title and the column edge on the site. `wai_remove_wrapper_side_inset()` removes the horizontal padding of such a wrapper:
+
+- Top level means a direct child of the content root (WeChat's `#js_content`, which is not stored itself), so wrappers inside other elements are not touched, and neither is a nested single child of a top-level wrapper.
+- The wrapper is a `section` or `div` that paints nothing itself: no property named `background*`, `border*`, `box-shadow` or `outline*`, vendor-prefixed or not. The test is by property name, so `box-sizing: border-box` does not count as a border, and a coloured or bordered box keeps its padding.
+- Only a plain edge inset goes: every horizontal padding value in the style (the sides of the `padding` shorthand, `padding-left`, `padding-right` and the logical `padding-inline` longhands) must be zero or a pixel length of at most 16px. Wider values may be intentional narrow columns, and `em`, `%`, `calc()`, `var()` and `!important` values cannot be judged, so the style stays as it is.
+- Vertical padding stays: `padding: 24px 10px` becomes `padding: 24px 0`.
+
+The function works on one element's tag and style, so the importer applies it to the direct children of its parsed fragment, and a one-time backfill of existing posts can apply it to the direct children of a stored post with an HTML processor.
+
 The style allowlist splits inline CSS on every semicolon, so quotes, parentheses or comments cannot hide a disallowed declaration inside an allowed one. Later steps split the cleaned CSS into the declarations a browser sees, keeping strings, comments, unquoted `url()` values and `()`, `[]` and `{}` blocks whole, so the typography rule removes only whole declarations.
 
 Stored content loads images only from WeChat media, which the import replaces with local copies, or from this site's uploads, on the same host and below the uploads path. An `<img>` with any other source is removed. In inline CSS, `url()` with such a URL is the only way to load an image: a value with a CSS escape is dropped, because an escape can spell any function name, and so is a call to any function other than `url()` and the colour, size, gradient and transform functions, because `image-set()` and similar functions take URLs as plain strings.

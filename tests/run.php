@@ -599,6 +599,106 @@ assert_contains( '<section style="letter-spacing:0.6px;text-align:justify"><p st
 assert_contains( '<section style="line-height:0"><span style="line-height:1.75">over image</span></section>', $typography_clean, 'imports keep line spacing under an image wrapper' );
 assert_contains( '<p style="font-size:13px;line-height:1.6;color:rgb(128, 128, 128)">caption</p>', $typography_clean, 'imports keep caption typography' );
 
+// Wrapper side inset: a top-level wrapper that paints nothing loses its horizontal padding.
+$inset_cases = array(
+	// The padding shorthand, one to four values: left and right go, top and bottom stay.
+	'padding:10px'                           => 'padding:10px 0',
+	'padding:0px 10px'                       => '',
+	'padding: 0 10px'                        => '',
+	'padding:24px 10px'                      => 'padding:24px 0',
+	'padding:5px 10px 7px'                   => 'padding:5px 0 7px 0',
+	'padding:5px 8px 7px 9px'                => 'padding:5px 0 7px 0',
+	'padding:5px 8px 5px 9px'                => 'padding:5px 0',
+	'padding:0 0 4px 12px'                   => 'padding:0 0 4px 0',
+	'padding:0 10px;color:red'               => 'color:red',
+	'color:red;padding:24px 10px;width:90%'  => 'color:red;padding:24px 0;width:90%',
+	// Longhands, including the logical ones; vertical longhands stay.
+	'padding-left:10px;color:red'            => 'color:red',
+	'padding-right:10px'                     => '',
+	'padding-left:10px;padding-right:12px;padding-top:3px;padding-bottom:4px' => 'padding-top:3px;padding-bottom:4px',
+	'padding-inline:10px'                    => '',
+	'padding-inline:10px 12px;margin:0'      => 'margin:0',
+	'padding-inline-start:10px;padding-inline-end:6px' => '',
+	// Declarations that set the same side twice all go, whichever wins.
+	'padding:0 10px;padding-left:5px'        => '',
+	'padding-left:5px;padding:4px 10px'      => 'padding:4px 0',
+	// Case, spacing and a trailing semicolon do not matter.
+	'LETTER-SPACING: 1px; Padding: 0PX 10PX;' => 'letter-spacing:1px',
+);
+foreach ( $inset_cases as $style => $expected ) {
+	assert_true( $expected === wai_remove_wrapper_side_inset( 'section', $style ), 'wrapper side inset: [' . $style . '] becomes [' . $expected . ']' );
+}
+
+// The threshold: zero, or a pixel length up to 16px on every side; anything wider may be a narrow column.
+assert_true( 16 === WAI_MAX_WRAPPER_SIDE_INSET, 'an edge inset is at most 16px' );
+assert_true( '' === wai_remove_wrapper_side_inset( 'section', 'padding:0 16px' ), 'a 16px inset goes' );
+assert_true( '' === wai_remove_wrapper_side_inset( 'section', 'padding:0 15.5px' ), 'a fractional inset below the limit goes' );
+assert_true( '' === wai_remove_wrapper_side_inset( 'section', 'padding:0 0.5px' ), 'a sub-pixel inset goes' );
+assert_true( 'padding:0 17px' === wai_remove_wrapper_side_inset( 'section', 'padding:0 17px' ), 'a 17px inset stays' );
+assert_true( 'padding:0 16.01px' === wai_remove_wrapper_side_inset( 'section', 'padding:0 16.01px' ), 'an inset just above the limit stays' );
+assert_true( 'padding:0 16px 0 17px' === wai_remove_wrapper_side_inset( 'section', 'padding:0 16px 0 17px' ), 'one side above the limit keeps both sides, since the wrapper is not a plain edge inset' );
+assert_true( 'padding-left:10px;padding-right:40px' === wai_remove_wrapper_side_inset( 'section', 'padding-left:10px;padding-right:40px' ), 'longhands with one side above the limit stay' );
+assert_true( 'padding-inline:10px 40px' === wai_remove_wrapper_side_inset( 'section', 'padding-inline:10px 40px' ), 'padding-inline with one side above the limit stays' );
+assert_true( 'padding:0 10px;padding-left:40px' === wai_remove_wrapper_side_inset( 'section', 'padding:0 10px;padding-left:40px' ), 'a wide side declared by another property keeps the whole style' );
+assert_true( 'padding:0 100px;padding-left:5px;padding-right:5px' === wai_remove_wrapper_side_inset( 'section', 'padding:0 100px;padding-left:5px;padding-right:5px' ), 'a wide value that a later longhand overrides still keeps the style, which is the cautious side' );
+foreach ( array( 'padding:0 1em', 'padding:0 5%', 'padding:0 1rem', 'padding:0 10pt', 'padding:0 calc(5px + 2px)', 'padding:0 var(--inset)', 'padding:0 10px !important', 'padding-left:10px!important', 'padding:0 10', 'padding:0 inherit', 'padding:0 1px 2px 3px 4px', 'padding-inline:1px 2px 3px' ) as $unjudged ) {
+	assert_true( $unjudged === wai_remove_wrapper_side_inset( 'section', $unjudged ), 'a padding that is not a plain pixel inset stays: ' . $unjudged );
+}
+foreach ( array( 'padding:24px 0', 'padding:0', 'padding-top:4px', 'padding-left:0', 'letter-spacing: 1px; color: red', '' ) as $nothing_to_remove ) {
+	assert_true( $nothing_to_remove === wai_remove_wrapper_side_inset( 'section', $nothing_to_remove ), 'a style without a side inset is returned as given: [' . $nothing_to_remove . ']' );
+}
+
+// Only a wrapper that paints nothing, judged by property name: box-sizing: border-box is not a border.
+assert_true( 'box-sizing:border-box;color:red' === wai_remove_wrapper_side_inset( 'section', 'padding:0 10px;box-sizing:border-box;color:red' ), 'box-sizing: border-box does not make a wrapper a box' );
+foreach ( array(
+	'background-color:#fbfaf7',
+	'background:#fbfaf7',
+	'background-image:linear-gradient(red, blue)',
+	'border:1px solid red',
+	'border-top:2px solid #b08a4a',
+	'border-left-color:red',
+	'box-shadow:0 0 4px red',
+	'-webkit-box-shadow:0 0 4px red',
+	'outline:1px solid red',
+) as $painted ) {
+	$box_style = 'padding:24px 10px;' . $painted;
+	assert_true( $box_style === wai_remove_wrapper_side_inset( 'section', $box_style ), 'a wrapper that paints keeps its padding: ' . $painted );
+	$box_style = $painted . ';padding:24px 10px';
+	assert_true( $box_style === wai_remove_wrapper_side_inset( 'div', $box_style ), 'the paint check does not depend on declaration order: ' . $painted );
+}
+
+// Only sections and divs are wrappers.
+foreach ( array( 'p', 'span', 'h2', 'ul', 'li', 'blockquote', 'img', 'a' ) as $not_a_wrapper ) {
+	assert_true( 'padding:0 10px' === wai_remove_wrapper_side_inset( $not_a_wrapper, 'padding:0 10px' ), 'a ' . $not_a_wrapper . ' is not a wrapper, so its padding stays' );
+}
+assert_true( '' === wai_remove_wrapper_side_inset( 'div', 'padding:0 10px' ), 'a div is a wrapper' );
+assert_true( '' === wai_remove_wrapper_side_inset( 'DIV', 'padding:0 10px' ), 'the tag name is not case sensitive' );
+
+$wrapper_import = wai_prepare_import_content(
+	'<section style="letter-spacing: 0.6px; padding: 0px 10px; box-sizing: border-box; font-size: 16px; text-align: justify;">'
+	. '<p style="margin: 0px;">body text</p>'
+	. '<section style="padding: 0px 10px; text-align: center;"><section style="padding: 0px 10px;">nested</section></section>'
+	. '<section style="padding: 8px 12px; background-color: rgb(251, 250, 247);">coloured box</section>'
+	. '<p style="padding: 0px 10px;">padded paragraph</p>'
+	. '</section>'
+	. '<div style="padding: 20px 10px 4px;"><p>second wrapper</p></div>'
+	. '<section style="padding: 0px 10px; border-left: 3px solid red;">bordered top-level box</section>'
+	. '<p style="padding: 0px 10px;">top-level paragraph</p>'
+	. '<section style="padding: 0px 24px;">narrow column</section>'
+);
+assert_contains( '<section style="letter-spacing:0.6px;box-sizing:border-box;text-align:justify"><p style="margin:0px">body text</p>', $wrapper_import, 'an import drops the top-level wrapper\'s side padding and keeps its other styles' );
+assert_contains( '<section style="padding:0px 10px;text-align:center"><section style="padding:0px 10px">nested</section></section>', $wrapper_import, 'wrappers inside the top-level wrapper keep their padding, including a single nested child' );
+assert_contains( '<section style="padding:8px 12px;background-color:rgb(251, 250, 247)">coloured box</section>', $wrapper_import, 'a coloured box inside the wrapper keeps its padding' );
+assert_contains( '<p style="padding:0px 10px">padded paragraph</p>', $wrapper_import, 'a paragraph inside the wrapper keeps its padding' );
+assert_contains( '<div style="padding:20px 0 4px 0"><p>second wrapper</p></div>', $wrapper_import, 'every top-level wrapper is handled, and vertical padding stays' );
+assert_contains( '<section style="padding:0px 10px;border-left:3px solid red">bordered top-level box</section>', $wrapper_import, 'a bordered top-level box keeps its padding' );
+assert_contains( '<p style="padding:0px 10px">top-level paragraph</p>', $wrapper_import, 'a top-level paragraph is not a wrapper' );
+assert_contains( '<section style="padding:0px 24px">narrow column</section>', $wrapper_import, 'a top-level wrapper with a wider inset keeps it' );
+assert_true( 'body text' . 'nested' . 'coloured box' . 'padded paragraph' . 'second wrapper' . 'bordered top-level box' . 'top-level paragraph' . 'narrow column' === strip_tags( $wrapper_import ), 'the visible text is unchanged' );
+assert_contains( '<section>text</section>', wai_prepare_import_content( '<section style="padding: 0px 10px;">text</section>' ), 'a wrapper left without styles loses its style attribute' );
+assert_true( '<p style="padding:0px 10px">a</p>' === wai_prepare_import_content( '<p style="padding: 0px 10px;">a</p>' ), 'a lone top-level paragraph keeps its padding' );
+assert_true( '<section><section style="padding:0px 10px">a</section></section>' === wai_prepare_import_content( '<section style="padding: 0px 10px;"><section style="padding: 0px 10px;">a</section></section>' ), 'only the top-level wrapper changes' );
+
 $html = '<html><head><meta property="og:image" content="https://mmbiz.qpic.cn/cover/0?wx_fmt=jpeg" /></head><body><h1 id="activity-name"> 今日谷雨，宜开封 </h1><div class="rich_media_content" id="js_content">' . $fixture . '</div><script>var ct = "1713625275";</script></body></html>';
 $article = wai_parse_wechat_article_html( $html );
 assert_true( '今日谷雨，宜开封' === $article['title'], 'parser extracts title' );

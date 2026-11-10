@@ -32,6 +32,8 @@ const WAI_NO_INHERITED_TYPOGRAPHY = array(
 	'font-size'   => false,
 	'line-height' => false,
 );
+// The widest horizontal padding, in pixels, that counts as an edge inset on a top-level wrapper.
+const WAI_MAX_WRAPPER_SIDE_INSET = 16;
 
 
 register_activation_hook( __FILE__, 'wai_activate' );
@@ -785,6 +787,7 @@ function wai_prepare_import_content( $content_html, $processed_images = array() 
 	wai_unwrap_redundant_spans( $doc );
 	wai_merge_adjacent_equivalent_inline_elements( $doc );
 	wai_normalize_blank_blocks( $doc );
+	wai_remove_wrapper_side_inset_from_tree( $doc );
 
 	$content = wai_get_body_inner_html( $doc );
 	if ( ! empty( $processed_images ) ) {
@@ -1210,6 +1213,133 @@ function wai_is_text_line_height( $value ) {
 	}
 	$ratio = (float) $matches[1];
 	return $ratio >= 1.5 && $ratio <= 2.5;
+}
+
+/**
+ * Removes the side inset from the top-level wrappers of an article, the direct
+ * children of the content root.
+ *
+ * @param DOMDocument $doc Document whose body holds the article.
+ * @return void
+ */
+function wai_remove_wrapper_side_inset_from_tree( DOMDocument $doc ) {
+	$body = $doc->getElementsByTagName( 'body' )->item( 0 );
+	if ( ! $body ) {
+		return;
+	}
+	foreach ( $body->childNodes as $child ) {
+		if ( ! $child instanceof DOMElement ) {
+			continue;
+		}
+		$style     = $child->getAttribute( 'style' );
+		$new_style = wai_remove_wrapper_side_inset( $child->tagName, $style );
+		if ( $new_style === $style ) {
+			continue;
+		}
+		if ( '' === $new_style ) {
+			$child->removeAttribute( 'style' );
+		} else {
+			$child->setAttribute( 'style', $new_style );
+		}
+	}
+}
+
+/**
+ * Removes the horizontal padding that insets a top-level wrapper from the article's edge.
+ *
+ * WeChat often wraps a whole article in one section with `padding: 0 10px`, an
+ * edge margin for its phone layout. On the site it pushes the text in from the
+ * title and the column edge for no visible reason. The caller decides that an
+ * element is top level, a direct child of the content root, since the rule is
+ * shared by a DOM walk at import time and an HTML processor walk over stored posts.
+ *
+ * The wrapper must be a section or div that paints nothing itself: no property
+ * named background*, border*, box-shadow or outline*, vendor-prefixed or not.
+ * A coloured or bordered box keeps its padding, which is part of its look. The
+ * test is by property name, so `box-sizing: border-box` does not count but
+ * `border: none` does.
+ *
+ * Only a plain edge inset goes: every horizontal padding value in the style (the
+ * padding shorthand's sides, padding-left, padding-right and the logical
+ * padding-inline longhands) must be zero or a pixel length up to
+ * WAI_MAX_WRAPPER_SIDE_INSET. Wider values may be an intentional narrow column,
+ * and em, %, calc(), var() or !important values cannot be judged, so the style
+ * then stays as it is. Vertical padding stays, so `padding: 24px 10px` becomes
+ * `padding: 24px 0`.
+ *
+ * @param string $tag   Tag name of the top-level element.
+ * @param string $style Inline CSS of the element.
+ * @return string The remaining CSS, or the style as given when nothing is removed.
+ */
+function wai_remove_wrapper_side_inset( $tag, $style ) {
+	if ( ! in_array( strtolower( $tag ), array( 'section', 'div' ), true ) ) {
+		return $style;
+	}
+
+	$declarations = wai_parse_style_declarations( $style );
+	$kept         = array();
+	$insets       = array();
+	foreach ( $declarations as $declaration ) {
+		$property = $declaration['property'];
+		$value    = $declaration['value'];
+
+		if ( preg_match( '/^(?:-(?:webkit|moz|ms|o)-)?(?:background|border|box-shadow|outline)/', $property ) ) {
+			return $style;
+		}
+
+		if ( 'padding' === $property ) {
+			// Top, right, bottom and left; a missing side copies the opposite one.
+			$sides = preg_split( '/\s+/', $value );
+			if ( count( $sides ) > 4 || preg_grep( '/^[a-z0-9.%+-]+$/i', $sides, PREG_GREP_INVERT ) ) {
+				return $style;
+			}
+			$top      = $sides[0];
+			$right    = $sides[1] ?? $top;
+			$bottom   = $sides[2] ?? $top;
+			$left     = $sides[3] ?? $right;
+			$insets[] = wai_parse_pixel_length( $right );
+			$insets[] = wai_parse_pixel_length( $left );
+			if ( 0.0 !== wai_parse_pixel_length( $top ) || 0.0 !== wai_parse_pixel_length( $bottom ) ) {
+				$kept[] = 'padding:' . ( $top === $bottom ? $top : $top . ' 0 ' . $bottom ) . ' 0';
+			}
+		} elseif ( in_array( $property, array( 'padding-left', 'padding-right', 'padding-inline-start', 'padding-inline-end' ), true ) ) {
+			$insets[] = wai_parse_pixel_length( $value );
+		} elseif ( 'padding-inline' === $property ) {
+			$sides = preg_split( '/\s+/', $value );
+			if ( count( $sides ) > 2 ) {
+				return $style;
+			}
+			foreach ( $sides as $side ) {
+				$insets[] = wai_parse_pixel_length( $side );
+			}
+		} else {
+			$kept[] = $property . ':' . $value;
+		}
+	}
+
+	foreach ( $insets as $inset ) {
+		if ( null === $inset || $inset > WAI_MAX_WRAPPER_SIDE_INSET ) {
+			return $style;
+		}
+	}
+	// Nothing to remove when no inset is declared, or all of them are zero already.
+	if ( ! $insets || 0.0 === max( $insets ) ) {
+		return $style;
+	}
+	return implode( ';', $kept );
+}
+
+/**
+ * @param string $value CSS length.
+ * @return float|null The length in pixels when it is a plain pixel length or a
+ *     unitless zero, and null for any other value.
+ */
+function wai_parse_pixel_length( $value ) {
+	if ( ! preg_match( '/^(\d+(?:\.\d+)?|\.\d+)(px)?$/i', $value, $matches ) ) {
+		return null;
+	}
+	$length = (float) $matches[1];
+	return ( 0.0 === $length || ! empty( $matches[2] ) ) ? $length : null;
 }
 
 /**
