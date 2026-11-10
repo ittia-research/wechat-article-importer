@@ -69,6 +69,10 @@ msgstr ""
 msgid "A server error occurred while downloading this image."
 msgstr ""
 
+#: wechat-article-importer.php:106
+msgid "The image was not saved with the article."
+msgstr ""
+
 #: wechat-article-importer.php:104
 msgid "Creating post..."
 msgstr ""

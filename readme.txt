@@ -55,6 +55,10 @@ Media files newly uploaded by this importer get `_wai_imported_attachment=1` plu
 
 == Changelog ==
 
+= 0.3.1 =
+* Fixed images missing from imported articles, usually the first one. A download that failed once, typically on a DNS timeout for the WeChat image host, was skipped, and the article kept a bare `<img>` with no source. Downloads that fail on a name lookup, connection, dropped connection, HTTP 429 or server error are now retried, up to three attempts, before the image is skipped.
+* The final import notice now lists every image the saved article shows without a local copy, including the featured image and images the importer could not look up, not only the downloads that returned an error. `wai_import_wechat_article()` raises a warning for each one.
+
 = 0.3.0 =
 * Imported articles now follow the site theme's font, body text size and line spacing: `font-family` is removed, body text sizes (14-18px) and text line spacing (1.5-2.5) are removed where the theme's value can take their place, and caption, display and layout sizes are kept.
 * Added `wai_remove_site_typography()`, which a one-time backfill can reuse to apply the same rule to existing posts.

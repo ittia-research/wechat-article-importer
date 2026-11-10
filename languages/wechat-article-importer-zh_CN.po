@@ -69,6 +69,10 @@ msgstr "步骤 2/3：%1$s %2$s，请保持页面开启..."
 msgid "A server error occurred while downloading this image."
 msgstr "下载此图片时发生服务器错误。"
 
+#: wechat-article-importer.php:106
+msgid "The image was not saved with the article."
+msgstr "此图片未随文章保存。"
+
 #: wechat-article-importer.php:104
 msgid "Creating post..."
 msgstr "正在生成文章..."

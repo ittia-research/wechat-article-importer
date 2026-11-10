@@ -25,6 +25,8 @@ const WAI_IMPORTED_ATTACHMENT_META = '_wai_imported_attachment';
 const WAI_SOURCE_IMAGE_URL_META = '_wai_source_image_url';
 const WAI_EDITOR_BODY_CLASS = 'wai-wechat-import-editor';
 const WAI_MAX_IMAGE_BYTES = 20971520;
+const WAI_IMAGE_DOWNLOAD_ATTEMPTS = 3;
+const WAI_IMAGE_RETRY_DELAY_US = 500000;
 const WAI_IMPORT_CAPABILITY = 'wai_import_wechat_articles';
 const WAI_CAPABILITY_VERSION = '1';
 const WAI_CAPABILITY_VERSION_OPTION = 'wai_capability_version';
@@ -103,6 +105,7 @@ function wai_enqueue_admin_scripts( $hook ) {
 				/* translators: 1: Image processing status, 2: Progress count, for example "1 / 5". */
 				'step_2_message'                => __( 'Step 2/3: %1$s %2$s. Please keep this page open...', 'wechat-article-importer' ),
 				'image_download_server_error'   => __( 'A server error occurred while downloading this image.', 'wechat-article-importer' ),
+				'image_not_saved'               => __( 'The image was not saved with the article.', 'wechat-article-importer' ),
 				'creating_post'                 => __( 'Creating post...', 'wechat-article-importer' ),
 				'step_3_message'                => __( 'Step 3/3: Images are processed. Finalizing and creating the post...', 'wechat-article-importer' ),
 				/* translators: %s: Linked "View or edit it here" text. */
@@ -547,14 +550,17 @@ function wai_handle_ajax_finish_import() {
 
 	wp_send_json_success(
 		array(
-			'post_id'   => $post_id,
-			'edit_link' => get_edit_post_link( $post_id, 'raw' ),
+			'post_id'        => $post_id,
+			'edit_link'      => get_edit_post_link( $post_id, 'raw' ),
+			'unsaved_images' => wai_find_unsaved_images( $task_data ),
 		)
 	);
 }
 
 /**
  * Imports one article in a single request. Intended for WP-CLI/testing and small articles.
+ * Each image left without a local copy raises an E_USER_WARNING, since there is no import
+ * screen to list them.
  *
  * @param string              $url  WeChat article URL.
  * @param array<string,mixed> $args Options: generate_thumbnails, post_status, post_author.
@@ -589,9 +595,11 @@ function wai_import_wechat_article( $url, $args = array() ) {
 	require_once ABSPATH . 'wp-admin/includes/file.php';
 	require_once ABSPATH . 'wp-admin/includes/image.php';
 
+	$image_errors = array();
 	foreach ( $article['image_urls'] as $image_url ) {
 		$attachment_id = wai_sideload_image( $image_url, 0, $cookie_jar_path, null, $generate_thumbnails );
 		if ( is_wp_error( $attachment_id ) ) {
+			$image_errors[ $image_url ] = $attachment_id->get_error_message();
 			continue;
 		}
 		$local_url = wp_get_attachment_url( $attachment_id );
@@ -613,6 +621,12 @@ function wai_import_wechat_article( $url, $args = array() ) {
 
 	$post_id = wai_insert_imported_post( $task_data );
 	wp_delete_file( $cookie_jar_path );
+
+	if ( ! is_wp_error( $post_id ) ) {
+		foreach ( wai_find_unsaved_images( $task_data ) as $image_url ) {
+			trigger_error( sprintf( 'WeChat Article Importer: post %d has no local copy of %s (%s).', $post_id, $image_url, $image_errors[ $image_url ] ?? 'it was not downloaded' ), E_USER_WARNING );
+		}
+	}
 
 	return $post_id;
 }
@@ -894,6 +908,71 @@ function wai_get_body_inner_html( DOMDocument $doc ) {
 }
 
 /**
+ * The URLs an image may be downloaded from, in the order the importer tries them:
+ * WeChat lazy-loads images from data-src and keeps a placeholder in src.
+ *
+ * @param DOMElement $img Image element.
+ * @return string[] Normalized, non-empty URLs.
+ */
+function wai_get_image_source_urls( DOMElement $img ) {
+	$urls = array();
+	foreach ( array( 'data-src', 'src' ) as $attribute ) {
+		$url = wai_normalize_url_attribute( $img->getAttribute( $attribute ) );
+		if ( '' !== $url ) {
+			$urls[] = $url;
+		}
+	}
+	return $urls;
+}
+
+/**
+ * The local copy of an image's source, or an empty string when the source was not
+ * downloaded. An image without a local copy has no src once the content is cleaned.
+ *
+ * @param DOMElement           $img              Image element.
+ * @param array<string,string> $processed_images Original URL => local URL map.
+ * @return string
+ */
+function wai_get_processed_image_url( DOMElement $img, $processed_images ) {
+	foreach ( wai_get_image_source_urls( $img ) as $url ) {
+		if ( ! empty( $processed_images[ $url ] ) ) {
+			return $processed_images[ $url ];
+		}
+	}
+	return '';
+}
+
+/**
+ * The source URL of every image that the stored article will not show: those in the
+ * content that have no local copy, and the featured image if it has none. This is the
+ * list an import must report, so none of them is lost silently.
+ *
+ * @param array<string,mixed> $task_data Task data: content_html, thumbnail_url, processed_images.
+ * @return string[]
+ */
+function wai_find_unsaved_images( $task_data ) {
+	$processed_images = $task_data['processed_images'] ?? array();
+	$unsaved          = array();
+
+	if ( ! empty( $task_data['content_html'] ) ) {
+		$doc = wai_load_html_fragment( $task_data['content_html'] );
+		foreach ( $doc->getElementsByTagName( 'img' ) as $img ) {
+			$urls = wai_get_image_source_urls( $img );
+			if ( $urls && '' === wai_get_processed_image_url( $img, $processed_images ) ) {
+				$unsaved[] = $urls[0];
+			}
+		}
+	}
+
+	$thumbnail_url = $task_data['thumbnail_url'] ?? '';
+	if ( '' !== $thumbnail_url && empty( $processed_images[ $thumbnail_url ] ) ) {
+		$unsaved[] = $thumbnail_url;
+	}
+
+	return array_values( array_unique( $unsaved ) );
+}
+
+/**
  * @param DOMDocument $doc Document.
  * @param DOMXPath    $xpath XPath.
  * @param array<string,string> $processed_images URL map.
@@ -902,13 +981,9 @@ function wai_get_body_inner_html( DOMDocument $doc ) {
 function wai_replace_processed_image_urls( DOMDocument $doc, DOMXPath $xpath, $processed_images ) {
 	$imgs = $doc->getElementsByTagName( 'img' );
 	foreach ( iterator_to_array( $imgs ) as $img ) {
-		$src_url     = wai_normalize_url_attribute( $img->getAttribute( 'src' ) );
-		$datasrc_url = wai_normalize_url_attribute( $img->getAttribute( 'data-src' ) );
-
-		if ( ! empty( $datasrc_url ) && isset( $processed_images[ $datasrc_url ] ) ) {
-			$img->setAttribute( 'src', $processed_images[ $datasrc_url ] );
-		} elseif ( ! empty( $src_url ) && isset( $processed_images[ $src_url ] ) ) {
-			$img->setAttribute( 'src', $processed_images[ $src_url ] );
+		$local_url = wai_get_processed_image_url( $img, $processed_images );
+		if ( '' !== $local_url ) {
+			$img->setAttribute( 'src', $local_url );
 		}
 	}
 
@@ -2415,22 +2490,14 @@ function wai_sanitize_file_name( $filename ) {
 	return trim( $filename, '.-' );
 }
 
-function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = null, $generate_thumbnails = false ) {
-	$image_url = wai_normalize_url_attribute( $image_url );
-	if ( empty( $image_url ) ) {
-		return new WP_Error( 'no_url', __( 'Image URL cannot be empty.', 'wechat-article-importer' ) );
-	}
-	if ( ! wai_is_allowed_image_url( $image_url ) ) {
-		return new WP_Error( 'invalid_image_url', __( 'The image URL is not from an allowed WeChat image domain.', 'wechat-article-importer' ) );
-	}
-
-	static $sideload_cache = array();
-	$source_url_md5 = md5( $image_url );
-
-	if ( isset( $sideload_cache[ $source_url_md5 ] ) ) {
-		return $sideload_cache[ $source_url_md5 ];
-	}
-
+/**
+ * One attempt to download an image from the WeChat media CDN.
+ *
+ * @param string $image_url       Normalized, allowed image URL.
+ * @param string $cookie_jar_path Cookie jar of the article fetch.
+ * @return array{body:string,http_code:int,errno:int,error:string,connected:bool}
+ */
+function wai_fetch_image_once( $image_url, $cookie_jar_path ) {
 	$ch      = curl_init();
 	$options = array(
 		CURLOPT_URL            => $image_url,
@@ -2459,18 +2526,94 @@ function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = nul
 		$options[ CURLOPT_LOW_SPEED_TIME ]  = 20;
 	}
 	curl_setopt_array( $ch, $options );
-	$image_data = curl_exec( $ch );
-	$http_code  = curl_getinfo( $ch, CURLINFO_HTTP_CODE );
-	$error      = curl_error( $ch );
+	$body   = curl_exec( $ch );
+	$result = array(
+		'body'      => is_string( $body ) ? $body : '',
+		'http_code' => (int) curl_getinfo( $ch, CURLINFO_HTTP_CODE ),
+		'errno'     => curl_errno( $ch ),
+		'error'     => curl_error( $ch ),
+		'connected' => curl_getinfo( $ch, CURLINFO_CONNECT_TIME ) > 0,
+	);
 	curl_close( $ch );
 
-	if ( 200 !== $http_code || empty( $image_data ) ) {
-		$message = $error ? $error : sprintf( 'HTTP Code: %s', $http_code );
-		/* translators: %s: HTTP or cURL error message. */
-		return new WP_Error( 'download_failed', sprintf( __( 'cURL image download failed. %s', 'wechat-article-importer' ), $message ) );
+	return $result;
+}
+
+/**
+ * Whether a failed download attempt is worth repeating: the request never reached the
+ * CDN (name resolution or connection failed or timed out), the connection dropped, or
+ * the CDN answered "try again later" or with a server error. A timeout after the
+ * connection was made is a stalled transfer, which a repeat would only stall again.
+ *
+ * @param array{http_code:int,errno:int,connected:bool} $attempt Result of wai_fetch_image_once().
+ * @return bool
+ */
+function wai_is_transient_download_failure( array $attempt ) {
+	$errno = $attempt['errno'];
+	if ( 28 === $errno ) { // CURLE_OPERATION_TIMEDOUT.
+		return ! $attempt['connected'];
 	}
-	if ( strlen( $image_data ) > WAI_MAX_IMAGE_BYTES ) {
+	// CURLE_COULDNT_RESOLVE_HOST, CURLE_COULDNT_CONNECT, CURLE_PARTIAL_FILE, CURLE_GOT_NOTHING, CURLE_SEND_ERROR, CURLE_RECV_ERROR.
+	if ( in_array( $errno, array( 6, 7, 18, 52, 55, 56 ), true ) ) {
+		return true;
+	}
+	return 429 === $attempt['http_code'] || $attempt['http_code'] >= 500;
+}
+
+/**
+ * Downloads an image from the WeChat media CDN, repeating attempts that fail for a
+ * transient reason. A DNS timeout on the CDN host is the usual one: it fails an attempt
+ * after the 10 second connect timeout, and the next lookup normally succeeds.
+ *
+ * @param string   $image_url       Image URL.
+ * @param string   $cookie_jar_path Cookie jar of the article fetch.
+ * @param callable $fetch           Makes one attempt; replaceable for tests.
+ * @return string|WP_Error Image bytes, or the error of the last attempt.
+ */
+function wai_download_image( $image_url, $cookie_jar_path, $fetch = 'wai_fetch_image_once' ) {
+	$image_url = wai_normalize_url_attribute( $image_url );
+	if ( empty( $image_url ) ) {
+		return new WP_Error( 'no_url', __( 'Image URL cannot be empty.', 'wechat-article-importer' ) );
+	}
+	if ( ! wai_is_allowed_image_url( $image_url ) ) {
+		return new WP_Error( 'invalid_image_url', __( 'The image URL is not from an allowed WeChat image domain.', 'wechat-article-importer' ) );
+	}
+
+	for ( $attempt = 1; ; ++$attempt ) {
+		$result = $fetch( $image_url, $cookie_jar_path );
+		if ( 200 === $result['http_code'] && '' !== $result['body'] ) {
+			break;
+		}
+		if ( $attempt >= WAI_IMAGE_DOWNLOAD_ATTEMPTS || ! wai_is_transient_download_failure( $result ) ) {
+			$message = $result['error'] ? $result['error'] : sprintf( 'HTTP Code: %s', $result['http_code'] );
+			if ( $attempt > 1 ) {
+				$message .= sprintf( ' (after %d attempts)', $attempt );
+			}
+			/* translators: %s: HTTP or cURL error message. */
+			return new WP_Error( 'download_failed', sprintf( __( 'cURL image download failed. %s', 'wechat-article-importer' ), $message ) );
+		}
+		usleep( WAI_IMAGE_RETRY_DELAY_US );
+	}
+	if ( strlen( $result['body'] ) > WAI_MAX_IMAGE_BYTES ) {
 		return new WP_Error( 'image_too_large', __( 'The image file exceeds the allowed size.', 'wechat-article-importer' ) );
+	}
+
+	return $result['body'];
+}
+
+function wai_sideload_image( $image_url, $post_id, $cookie_jar_path, $desc = null, $generate_thumbnails = false ) {
+	$image_url = wai_normalize_url_attribute( $image_url );
+
+	static $sideload_cache = array();
+	$source_url_md5 = md5( $image_url );
+
+	if ( isset( $sideload_cache[ $source_url_md5 ] ) ) {
+		return $sideload_cache[ $source_url_md5 ];
+	}
+
+	$image_data = wai_download_image( $image_url, $cookie_jar_path );
+	if ( is_wp_error( $image_data ) ) {
+		return $image_data;
 	}
 
 	$attachment_id = wai_create_imported_attachment_from_image_data( $image_url, $image_data, $post_id, $desc, $generate_thumbnails );

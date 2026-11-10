@@ -479,6 +479,66 @@ assert_true( in_array( 'https://mmbiz.qpic.cn/cover/0?wx_fmt=jpeg', $urls, true 
 assert_true( count( $urls ) === count( array_unique( $urls ) ), 'collector deduplicates image URLs' );
 assert_true( ! in_array( 'https://example.test/not-allowed.jpg', wai_collect_image_urls( '<p><img data-src="https://example.test/not-allowed.jpg"></p>' ), true ), 'collector ignores non-WeChat image URLs' );
 
+// Production lost the header GIF of some articles: its download failed once on a DNS timeout, so the
+// processed-image map had no entry for it and its <img> kept neither a src nor a failure report.
+$dns_timeout = array( 'body' => '', 'http_code' => 0, 'errno' => 28, 'error' => 'Resolving timed out after 10000 milliseconds', 'connected' => false );
+$gif_bytes   = 'GIF89a' . str_repeat( "\0", 20 );
+$ok_download = array( 'body' => $gif_bytes, 'http_code' => 200, 'errno' => 0, 'error' => '', 'connected' => true );
+$fetch_calls = 0;
+$fetch_in    = function ( array $results ) use ( &$fetch_calls ) {
+	$fetch_calls = 0;
+	return function () use ( $results, &$fetch_calls ) {
+		return $results[ min( $fetch_calls++, count( $results ) - 1 ) ];
+	};
+};
+$gif_url = 'https://mmbiz.qpic.cn/mmbiz_gif/example/640?wx_fmt=gif';
+
+assert_true( $gif_bytes === wai_download_image( $gif_url, '/tmp/no-cookie.txt', $fetch_in( array( $dns_timeout, $ok_download ) ) ), 'an image whose first download attempt hits a DNS timeout is downloaded by the next attempt' );
+assert_true( 2 === $fetch_calls, 'a download that succeeds on the second attempt stops there' );
+$exhausted = wai_download_image( $gif_url, '/tmp/no-cookie.txt', $fetch_in( array( $dns_timeout ) ) );
+assert_true( is_wp_error( $exhausted ) && WAI_IMAGE_DOWNLOAD_ATTEMPTS === $fetch_calls, 'a download that keeps failing transiently gives up after the attempt limit' );
+assert_contains( 'Resolving timed out after 10000 milliseconds (after ' . WAI_IMAGE_DOWNLOAD_ATTEMPTS . ' attempts)', $exhausted->get_error_message(), 'the final download error names the cause and the attempts made' );
+$not_found = wai_download_image( $gif_url, '/tmp/no-cookie.txt', $fetch_in( array( array( 'body' => 'Not found', 'http_code' => 404, 'errno' => 0, 'error' => '', 'connected' => true ) ) ) );
+assert_true( is_wp_error( $not_found ) && 1 === $fetch_calls, 'a missing image is not downloaded again' );
+assert_contains( 'HTTP Code: 404', $not_found->get_error_message(), 'a failed download without a cURL error reports the HTTP code' );
+assert_true( is_wp_error( wai_download_image( 'https://example.test/image.jpg', '/tmp/no-cookie.txt', $fetch_in( array( $ok_download ) ) ) ) && 0 === $fetch_calls, 'a non-WeChat image URL is rejected before any download attempt' );
+foreach (
+	array(
+		'DNS timeout'              => array( $dns_timeout, true ),
+		'host not resolved'        => array( array( 'http_code' => 0, 'errno' => 6, 'connected' => false ), true ),
+		'connection refused'       => array( array( 'http_code' => 0, 'errno' => 7, 'connected' => false ), true ),
+		'connection dropped'       => array( array( 'http_code' => 0, 'errno' => 56, 'connected' => true ), true ),
+		'CDN busy'                 => array( array( 'http_code' => 429, 'errno' => 0, 'connected' => true ), true ),
+		'CDN server error'         => array( array( 'http_code' => 503, 'errno' => 0, 'connected' => true ), true ),
+		'stalled transfer'         => array( array( 'http_code' => 0, 'errno' => 28, 'connected' => true ), false ),
+		'image forbidden'          => array( array( 'http_code' => 403, 'errno' => 0, 'connected' => true ), false ),
+		'image missing'            => array( array( 'http_code' => 404, 'errno' => 0, 'connected' => true ), false ),
+		'image over the size limit' => array( array( 'http_code' => 200, 'errno' => 63, 'connected' => true ), false ),
+	) as $failure_name => $failure_case
+) {
+	assert_true( $failure_case[1] === wai_is_transient_download_failure( $failure_case[0] ), 'download failure is ' . ( $failure_case[1] ? '' : 'not ' ) . 'transient: ' . $failure_name );
+}
+
+$article_html = '<section><section><img data-src="' . $gif_url . '" class="raw-image" data-w="900" style="max-width: 100%;"></section>'
+	. '<section><img data-src="' . $source_image . '" class="raw-image"></section>'
+	. '<section><img data-src="' . $source_image . '" class="raw-image"></section>'
+	. '<section><img data-src="https://example.test/elsewhere.png" class="raw-image"></section>'
+	. '<section><img src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" class="raw-image"></section></section>';
+$cover_url    = 'https://mmbiz.qpic.cn/cover/0?wx_fmt=jpeg';
+$article_task = array( 'content_html' => $article_html, 'thumbnail_url' => $cover_url, 'processed_images' => array( $source_image => $local_image, $cover_url => $local_image ) );
+assert_true( array( $gif_url, 'https://example.test/elsewhere.png' ) === wai_find_unsaved_images( $article_task ), 'images without a local copy are listed once each: the missed GIF and the image from another host, not the saved ones or an image with no URL' );
+$gif_missing_content = wai_prepare_import_content( $article_html, $article_task['processed_images'] );
+assert_true( 1 === preg_match( '~<img class="raw-image"[^>]*>~', $gif_missing_content ), 'an image missing from the processed map is stored without a src, which is why it has to be reported' );
+$article_task['processed_images'][ $gif_url ] = $local_bg;
+assert_true( array( 'https://example.test/elsewhere.png' ) === wai_find_unsaved_images( $article_task ), 'an image in the processed map is no longer listed' );
+assert_contains( 'src="' . $local_bg . '"', wai_prepare_import_content( $article_html, $article_task['processed_images'] ), 'an image in the processed map is stored with its local src' );
+$article_task['processed_images'][ $gif_url ] = false;
+assert_true( in_array( $gif_url, wai_find_unsaved_images( $article_task ), true ), 'a processed entry without a local URL counts as unsaved' );
+assert_not_contains( 'src=""', wai_prepare_import_content( $article_html, $article_task['processed_images'] ), 'a processed entry without a local URL does not store an empty src' );
+unset( $article_task['processed_images'][ $cover_url ] );
+assert_true( in_array( $cover_url, wai_find_unsaved_images( $article_task ), true ), 'a featured image without a local copy is listed' );
+assert_true( array() === wai_find_unsaved_images( array( 'content_html' => '', 'thumbnail_url' => '', 'processed_images' => array() ) ), 'an article without images has none unsaved' );
+
 $legacy_marker_clean = wai_prepare_import_content( '<p style="margin:0px"><span style="display:inline-block;width:0;min-height:1em;line-height:inherit;vertical-align:baseline;overflow:hidden;">&nbsp;</span></p>' );
 assert_contains( 'height:0;line-height:0;vertical-align:baseline;overflow:hidden', $legacy_marker_clean, 'legacy spacer markers are normalized to non-inflating markers' );
 assert_not_contains( 'min-height:1em', $legacy_marker_clean, 'legacy spacer marker min-height is removed' );
