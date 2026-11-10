@@ -52,9 +52,20 @@ Typography that the site theme owns is removed by `wai_remove_site_typography()`
 
 Letter spacing and justified alignment stay, because they suit Chinese text; a theme can override them for other languages with `!important` rules. The function works on one style attribute plus what its ancestors keep, so a one-time backfill of existing posts can reuse it with an HTML walker that tracks ancestors.
 
+WeChat also wraps most articles in one top-level section with `padding: 0 10px` (sometimes 15px), an edge margin for its phone layout that pushes the text in from the title and the column edge on the site. `wai_remove_wrapper_side_inset()` removes the horizontal padding of such a wrapper:
+
+- Top level means a direct child of the content root (WeChat's `#js_content`, which is not stored itself), so wrappers inside other elements are not touched, and neither is a nested single child of a top-level wrapper.
+- The wrapper is a `section` or `div` that paints nothing itself: no property named `background*`, `border*`, `box-shadow` or `outline*`, vendor-prefixed or not. The test is by property name, so `box-sizing: border-box` does not count as a border, and a coloured or bordered box keeps its padding.
+- Only a plain edge inset goes: every horizontal padding value in the style (the sides of the `padding` shorthand, `padding-left`, `padding-right` and the logical `padding-inline` longhands) must be zero or a pixel length of at most 16px. Wider values may be intentional narrow columns, and `em`, `%`, `calc()`, `var()` and `!important` values cannot be judged, so the style stays as it is.
+- Vertical padding stays: `padding: 24px 10px` becomes `padding: 24px 0`.
+
+The function works on one element's tag and style, so the importer applies it to the direct children of its parsed fragment, and a one-time backfill of existing posts can apply it to the direct children of a stored post with an HTML processor.
+
 The style allowlist splits inline CSS on every semicolon, so quotes, parentheses or comments cannot hide a disallowed declaration inside an allowed one. Later steps split the cleaned CSS into the declarations a browser sees, keeping strings, comments, unquoted `url()` values and `()`, `[]` and `{}` blocks whole, so the typography rule removes only whole declarations.
 
 Stored content loads images only from WeChat media, which the import replaces with local copies, or from this site's uploads, on the same host and below the uploads path. An `<img>` with any other source is removed. In inline CSS, `url()` with such a URL is the only way to load an image: a value with a CSS escape is dropped, because an escape can spell any function name, and so is a call to any function other than `url()` and the colour, size, gradient and transform functions, because `image-set()` and similar functions take URLs as plain strings.
+
+Image downloads are repeated, up to three attempts, when an attempt fails before the CDN answers (name lookup, connection or connect timeout), when the connection drops, or when the CDN answers HTTP 429 or a server error. A DNS timeout on the image host fails an attempt after 10 seconds, and the next lookup normally succeeds; a missing image (4xx) or a stalled transfer is not repeated. An image that still fails keeps the placeholder `<img>` that `wai_clean_dom_tree()` leaves for an image without a source. When the post is created, `wai_find_unsaved_images()` lists every image the article shows without a local copy, the featured image included, whatever the reason, and the import screen reports each one; `wai_import_wechat_article()` raises an `E_USER_WARNING` for each.
 
 Media dedupe now uses source-agnostic attachment content hashes stored in `_wai_attachment_content_md5`. WeChat imports download and verify image bytes, compute the MD5, then reuse any existing attachment with the same canonical hash before creating a new media file. New or regenerated attachments also receive the same canonical MD5 metadata; legacy source-hash keys such as `_iafw_source_md5` and `_wai_source_md5` are no longer read or written. Because the MD5 metadata can exist on manual uploads too, newly uploaded importer media are additionally marked with `_wai_imported_attachment` and `_wai_source_image_url`. Existing attachments reused by dedupe are not marked as importer-created media.
 
@@ -140,7 +151,7 @@ binaries:
 xgettext --from-code=UTF-8 --language=PHP \
   --keyword=__ --keyword=_e --keyword=esc_html_e --keyword=esc_attr_e \
   --add-comments=translators: \
-  --package-name='WeChat Article Importer' --package-version='0.3.0' \
+  --package-name='WeChat Article Importer' --package-version='0.3.1' \
   --msgid-bugs-address='https://github.com/ittia-research' \
   --copyright-holder='ITTIA' \
   --output=languages/wechat-article-importer.pot \

@@ -5,7 +5,7 @@
 #
 msgid ""
 msgstr ""
-"Project-Id-Version: WeChat Article Importer 0.3.0\n"
+"Project-Id-Version: WeChat Article Importer 0.3.1\n"
 "Report-Msgid-Bugs-To: https://github.com/ittia-research\n"
 "POT-Creation-Date: 2026-11-09 20:56+0800\n"
 "PO-Revision-Date: 2026-04-26 19:17+0800\n"
@@ -68,6 +68,10 @@ msgstr "Step 2/3: %1$s %2$s. Please keep this page open..."
 #: wechat-article-importer.php:103
 msgid "A server error occurred while downloading this image."
 msgstr "A server error occurred while downloading this image."
+
+#: wechat-article-importer.php:106
+msgid "The image was not saved with the article."
+msgstr "The image was not saved with the article."
 
 #: wechat-article-importer.php:104
 msgid "Creating post..."

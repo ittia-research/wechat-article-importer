@@ -6,7 +6,7 @@
 #, fuzzy
 msgid ""
 msgstr ""
-"Project-Id-Version: WeChat Article Importer 0.3.0\n"
+"Project-Id-Version: WeChat Article Importer 0.3.1\n"
 "Report-Msgid-Bugs-To: https://github.com/ittia-research\n"
 "POT-Creation-Date: 2026-11-09 20:56+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
@@ -67,6 +67,10 @@ msgstr ""
 
 #: wechat-article-importer.php:103
 msgid "A server error occurred while downloading this image."
+msgstr ""
+
+#: wechat-article-importer.php:106
+msgid "The image was not saved with the article."
 msgstr ""
 
 #: wechat-article-importer.php:104

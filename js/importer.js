@@ -229,6 +229,17 @@ jQuery(document).ready(function ($) {
             },
             success: function (response) {
                 if (response.success) {
+                    // The server knows which images the saved article shows without a local copy,
+                    // whether or not a download request reported a failure for them.
+                    (response.data.unsaved_images || []).forEach(function (imageUrl) {
+                        var alreadyReported = taskData.skipped_images.some(function (skippedImage) {
+                            return skippedImage.image_url === imageUrl;
+                        });
+                        if (!alreadyReported) {
+                            recordSkippedImage(imageUrl, i18n('image_not_saved', 'The image was not saved with the article.'));
+                        }
+                    });
+
                     var successParagraph = $('<p>');
                     appendTemplateWithLink(
                         successParagraph,
